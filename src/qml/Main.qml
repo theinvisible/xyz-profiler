@@ -13,7 +13,10 @@ ApplicationWindow {
     height: 900
     title: qsTr("xyz-profiler")
 
-    Material.theme:  Material.Dark
+    // Theme tracks the SettingsController; switches live without restart.
+    Material.theme: SettingsController.themeName === "Light"  ? Material.Light
+                  : SettingsController.themeName === "System" ? Material.System
+                  :                                              Material.Dark
     Material.accent: Material.Blue
 
 
@@ -42,6 +45,11 @@ ApplicationWindow {
                 text: qsTr("%1 movies").arg(LibraryController.movieCount)
                 color: Material.foreground
                 opacity: 0.7
+            }
+
+            ToolButton {
+                text: qsTr("Settings…")
+                onClicked: settingsDialog.open()
             }
         }
     }
@@ -121,8 +129,22 @@ ApplicationWindow {
         title: qsTr("Import DVD Profiler Collection.xml")
         nameFilters: [qsTr("DVD Profiler XML (Collection.xml *.xml)")]
         fileMode: FileDialog.OpenFile
-        onAccepted: LibraryController.importDvdProfilerXml(selectedFile, "")
+        // Begin (parse only) — the preview dialog then prompts for
+        // confirmation before the actual DB write. Images dir defaults
+        // to the user's configured one.
+        onAccepted: LibraryController.beginImport(
+            selectedFile,
+            SettingsController.imagesDirectory)
     }
+
+    // TMDb match picker — auto-shows when the controller has candidates.
+    TmdbMatchDialog { }
+
+    // Persistent settings editor — opened from the toolbar.
+    SettingsDialog { id: settingsDialog }
+
+    // Confirmation step between file-pick and DB-write.
+    ImportPreviewDialog { }
 
     // Modal progress dialog. Visible whenever the controller has an
     // import running; auto-closes when the worker finishes.

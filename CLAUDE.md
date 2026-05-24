@@ -51,14 +51,24 @@ xyz-profiler/
 │   │   ├── Database.h/.cpp    Connection wrapper, WAL + FK pragmas
 │   │   ├── Migrations.h/.cpp  schema_version + idempotent runner
 │   │   └── MovieRepository.h/.cpp  insert/bulk/getById/getAll/search (FTS5)
+│   ├── tmdb/                  TMDb v3 read API client (xyz_tmdb lib)
+│   │   ├── TmdbTypes.h        Candidate / MovieDetails / ImageConfig
+│   │   ├── TmdbClient.h/.cpp  Async search/movie/configuration
 │   ├── models/                QML-facing data presentation
 │   │   └── MovieListModel.h/.cpp  QAbstractListModel with named roles
 │   ├── controllers/           QML-facing imperative API
-│   │   └── LibraryController.h/.cpp  Q_INVOKABLE actions, selection state
+│   │   ├── LibraryController.h/.cpp     Q_INVOKABLE actions, selection state,
+│   │   │                                 two-phase import (preview + commit),
+│   │   │                                 TMDb search + match
+│   │   └── SettingsController.h/.cpp    QSettings-backed prefs (TMDb key,
+│   │                                     images dir, theme)
 │   └── qml/                   QML view files (bundled via qt_add_qml_module)
-│       ├── Main.qml           ApplicationWindow shell — header / footer / split
-│       ├── CoverGrid.qml      GridView with lazy cover thumbnails + badges
-│       └── MovieDetail.qml    Right-side detail pane (cast, crew, audio, …)
+│       ├── Main.qml                ApplicationWindow shell + header / footer / split
+│       ├── CoverGrid.qml           GridView with lazy cover thumbnails + badges
+│       ├── MovieDetail.qml         Right-side detail pane (cast, crew, audio, …)
+│       ├── TmdbMatchDialog.qml     TMDb candidate picker
+│       ├── ImportPreviewDialog.qml Two-phase import confirmation
+│       └── SettingsDialog.qml      Persistent user settings editor
 └── tests/
     ├── CMakeLists.txt
     ├── test_collection_xml_reader.cpp   QtTest, registered with ctest
@@ -74,12 +84,8 @@ genres, credits/developers, tags, purchase info, covers, custom fields), and
 a future `Game : MediaItem` would slot in beside `Movie` without disturbing
 the importer or repository contracts.
 
-Planned additions (not yet present):
-
-```
-src/
-└── tmdb/                TMDb HTTP client, image cache, matcher
-```
+All Phase-1-through-Phase-6 modules are now in place. The roadmap below
+tracks remaining items.
 
 ## Build & test
 
@@ -185,6 +191,35 @@ Sql / Network / Xml / Test.
 - **Dual-mode entry point**: `xyz-profiler.exe` launches the GUI by
   default; passing a Collection.xml positional arg keeps the original CLI
   flow for batch / scripted use.
+- **TMDb integration** (`xyz_tmdb` lib):
+  - `TmdbClient` — async wrapper around TMDb's v3 read API
+    (`search/movie`, `movie/{id}`, `configuration`); JSON parsed via
+    `QJsonDocument`, no SDK dependency
+  - Shared `QNetworkDiskCache` at `QStandardPaths::CacheLocation/network`
+    used by both `TmdbClient` and the QML image loader (via a
+    `QQmlNetworkAccessManagerFactory`) — poster thumbnails persist across
+    restarts
+  - Schema migration v2 adds `tmdb_id` to `movies` with an index
+  - `LibraryController` exposes `searchSelectedOnTmdb` / `pickTmdbMatch`
+    invokables and a `tmdbCandidates` model
+  - `TmdbMatchDialog.qml` shows poster + title + year + overview for
+    each hit; click → persisted to DB, indicator appears in detail pane
+  - API key from `TMDB_API_KEY` env var; missing key gracefully disables
+    the buttons rather than crashing (proper settings UI deferred to a
+    later phase)
+- **User settings** (`SettingsController` + `xyz-profiler.ini` under
+  `AppConfigLocation`): TMDb API key (overrides `TMDB_API_KEY` env var),
+  default cover-images directory, theme (Dark/Light/System — bound to
+  `Material.theme` so switches apply instantly without restart). Exposed
+  to QML as a singleton; editable via the toolbar Settings… dialog.
+- **Two-phase import wizard**: file pick → background parse (cancellable)
+  → `ImportPreviewDialog` showing count + first 8 titles + chosen images
+  dir → on confirm runs the per-row DB write with the existing progress
+  bar; cancel discards the parsed data without touching the DB.
+- **Internationalisation**: English + German via `qt_add_translations`;
+  system locale auto-detected, falls back to English
+- **Packaging**: Inno Setup script + GitHub Actions workflow that builds,
+  tests, ZIPs, and attaches signed installers to tagged releases
 
 **Validated against** the user's real 369-entry DP4 export — all movies
 persisted to a 10 MB SQLite file, FTS5 search returns expected hits for
@@ -227,16 +262,23 @@ Roughly in build order — each chunk should ship green tests.
 - [ ] `MovieFilterProxyModel : QSortFilterProxyModel` — deferred; FTS5
       search in the repository covers the v1 search case already
 
-### 5. TMDb integration (`src/tmdb/`)
-- [ ] `TmdbClient` — async `search/movie`, `movie/{id}`, image config
-- [ ] Disk image cache (`QStandardPaths::CacheLocation`)
-- [ ] Match dialog (QML) when `search/movie` returns multiple candidates
-- [ ] Store `tmdb_id` on `Movie`; refresh-from-TMDb action
+### 5. TMDb integration (`src/tmdb/`) — DONE for matching; refresh deferred
+- [x] `TmdbClient` — async `search/movie`, `movie/{id}`, image config
+- [x] Disk image cache (`QStandardPaths::CacheLocation`) — shared by
+      TmdbClient and the QML `Image` loader via a
+      `QQmlNetworkAccessManagerFactory`
+- [x] Match dialog (QML) — auto-shows on candidates, posters via TMDb
+      thumbnails (w185), pick → persisted to DB
+- [x] Store `tmdb_id` on `Movie` (schema migration v2)
+- [ ] Refresh-from-TMDb action (overwrite local metadata with TMDb data) —
+      deferred to a later phase; needs UX for "which fields to overwrite"
 
-### 6. Settings & first-run
-- [ ] `QSettings`-backed config: library DB path, images dir,
-      TMDb API key, theme
-- [ ] Import wizard: pick `Collection.xml` + images dir → preview → commit
+### 6. Settings & first-run — DONE
+- [x] `QSettings`-backed config: TMDb API key, images dir, theme.
+      Library DB path is intentionally NOT a setting — it's auto-managed
+      under `AppLocalDataLocation`.
+- [x] Import wizard: file pick → background parse → preview dialog
+      (count + sample titles) → confirm → progress dialog → done
 
 ### Post-MVP (explicitly out of scope for v1)
 - Loan tracking (who borrowed which disc)

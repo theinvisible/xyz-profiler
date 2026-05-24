@@ -135,6 +135,8 @@ Movie makeRichMovie(const QString& id = QStringLiteral("085391163926"))
     m.profileTimestamp = QDateTime(QDate(2012, 7, 22), QTime(4, 38, 8), QTimeZone::UTC);
     m.lastEdited       = QDateTime(QDate(2024, 9, 8), QTime(20, 37, 50), QTimeZone::UTC);
 
+    m.tmdbId = 603; // The Matrix
+
     return m;
 }
 
@@ -244,6 +246,8 @@ void TestMovieRepository::insert_and_get_by_id_roundtrips()
 
     QCOMPARE(out->review.film,    in.review.film);
     QCOMPARE(out->mediaBanners.front, in.mediaBanners.front);
+
+    QCOMPARE(out->tmdbId, 603);
 }
 
 void TestMovieRepository::bulk_insert_count_matches()

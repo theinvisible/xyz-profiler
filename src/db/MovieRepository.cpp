@@ -411,7 +411,8 @@ const char* kMovieSelectColumns =
     "loan_user_email, loan_user_phone, "
     "review_film, review_video, review_audio, review_extras, "
     "banner_front, banner_back, "
-    "profile_timestamp, last_edited";
+    "profile_timestamp, last_edited, "
+    "tmdb_id";
 
 Movie movieFromRow(QSqlQuery& q)
 {
@@ -493,6 +494,7 @@ Movie movieFromRow(QSqlQuery& q)
     m.mediaBanners.back               = q.value(i++).toString();
     m.profileTimestamp                = QDateTime::fromString(q.value(i++).toString(), Qt::ISODate);
     m.lastEdited                      = QDateTime::fromString(q.value(i++).toString(), Qt::ISODate);
+    m.tmdbId                          = q.value(i++).toInt();
     return m;
 }
 
@@ -661,7 +663,8 @@ bool MovieRepository::insertRow_(const Movie& movie)
             loan_user_email, loan_user_phone,
             review_film, review_video, review_audio, review_extras,
             banner_front, banner_back,
-            profile_timestamp, last_edited
+            profile_timestamp, last_edited,
+            tmdb_id
         ) VALUES (
             ?, ?, ?, ?, ?,
             ?, ?, ?, ?, ?,
@@ -683,7 +686,8 @@ bool MovieRepository::insertRow_(const Movie& movie)
             ?, ?,
             ?, ?, ?, ?,
             ?, ?,
-            ?, ?
+            ?, ?,
+            ?
         )
     )sql"));
 
@@ -764,6 +768,7 @@ bool MovieRepository::insertRow_(const Movie& movie)
     q.bindValue(i++, movie.mediaBanners.back);
     q.bindValue(i++, isoOrEmpty(movie.profileTimestamp));
     q.bindValue(i++, isoOrEmpty(movie.lastEdited));
+    q.bindValue(i++, movie.tmdbId > 0 ? QVariant(movie.tmdbId) : QVariant(QMetaType(QMetaType::Int)));
 
     if (!q.exec()) {
         m_lastError = q.lastError().text();

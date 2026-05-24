@@ -47,6 +47,23 @@ target_include_directories(xyz_importers
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# --- TMDb client -----------------------------------------------------------
+# Async wrapper around TMDb's v3 read API. Depends only on Qt's network
+# stack and the canonical domain types — kept independent from
+# persistence so other importers/upstream metadata sources could be
+# added as siblings later.
+add_library(xyz_tmdb STATIC
+    tmdb/TmdbClient.h
+    tmdb/TmdbClient.cpp
+    tmdb/TmdbTypes.h
+)
+target_link_libraries(xyz_tmdb
+    PUBLIC xyz_domain Qt6::Core Qt6::Network
+)
+target_include_directories(xyz_tmdb
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # --- Persistence -----------------------------------------------------------
 add_library(xyz_db STATIC
     db/Database.h
@@ -82,10 +99,15 @@ qt_add_qml_module(xyz-profiler
         models/MovieListModel.cpp
         controllers/LibraryController.h
         controllers/LibraryController.cpp
+        controllers/SettingsController.h
+        controllers/SettingsController.cpp
     QML_FILES
         qml/Main.qml
         qml/CoverGrid.qml
         qml/MovieDetail.qml
+        qml/TmdbMatchDialog.qml
+        qml/SettingsDialog.qml
+        qml/ImportPreviewDialog.qml
     # Qt's QML engine auto-searches `:/qt/qml/` on the resource system;
     # putting the module there lets `loadFromModule("xyz.profiler", "Main")`
     # work without an extra `engine.addImportPath()` call in main.
@@ -116,9 +138,11 @@ target_link_libraries(xyz-profiler
         xyz_domain
         xyz_importers
         xyz_db
+        xyz_tmdb
         Qt6::Core
         Qt6::Concurrent
         Qt6::Gui
+        Qt6::Network
         Qt6::Qml
         Qt6::Quick
         Qt6::QuickControls2

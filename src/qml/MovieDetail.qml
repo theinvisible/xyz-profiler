@@ -80,6 +80,29 @@ Pane {
                 asynchronous: true
             }
 
+            // ---- TMDb match -----------------------------------------------
+            RowLayout {
+                Layout.fillWidth: true
+                visible: LibraryController.tmdbAvailable
+                spacing: 8
+
+                Label {
+                    visible: LibraryController.selectedTmdbId > 0
+                    text: qsTr("TMDb #%1").arg(LibraryController.selectedTmdbId)
+                    color: Material.accent
+                    font.pixelSize: 12
+                    opacity: 0.9
+                }
+                Item { Layout.fillWidth: true }
+                Button {
+                    text: LibraryController.selectedTmdbId > 0
+                        ? qsTr("Re-match on TMDb…")
+                        : qsTr("Find on TMDb…")
+                    enabled: !LibraryController.tmdbSearching
+                    onClicked: LibraryController.searchSelectedOnTmdb()
+                }
+            }
+
             // ---- Loan badge ----------------------------------------------
             Rectangle {
                 visible: LibraryController.selectedIsLoaned

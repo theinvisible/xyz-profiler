@@ -2,6 +2,7 @@
 
 #include "domain/Movie.h"
 #include "models/MovieListModel.h"
+#include "tmdb/TmdbTypes.h"
 
 #include <QFuture>
 #include <QFutureWatcher>
@@ -16,6 +17,7 @@ namespace xyz {
 
 class Database;
 class MovieRepository;
+class TmdbClient;
 
 // Top-level QML-facing controller for the library.
 //
@@ -47,6 +49,20 @@ class LibraryController : public QObject {
     Q_PROPERTY(QString importStage      READ importStage      NOTIFY importStateChanged)
     Q_PROPERTY(int     importCurrent    READ importCurrent    NOTIFY importStateChanged)
     Q_PROPERTY(int     importTotal      READ importTotal      NOTIFY importStateChanged)
+
+    // ---- Import preview (between parse and DB-write phases) --------------
+    Q_PROPERTY(bool        previewActive       READ previewActive       NOTIFY importStateChanged)
+    Q_PROPERTY(int         previewMovieCount   READ previewMovieCount   NOTIFY importStateChanged)
+    Q_PROPERTY(QStringList previewSampleTitles READ previewSampleTitles NOTIFY importStateChanged)
+    Q_PROPERTY(QString     previewSourceName   READ previewSourceName   NOTIFY importStateChanged)
+    Q_PROPERTY(QString     previewImagesDir    READ previewImagesDir    NOTIFY importStateChanged)
+
+    // ---- TMDb state ------------------------------------------------------
+    Q_PROPERTY(bool         tmdbAvailable     READ tmdbAvailable     CONSTANT)
+    Q_PROPERTY(bool         tmdbSearching     READ tmdbSearching     NOTIFY tmdbStateChanged)
+    Q_PROPERTY(QString      tmdbSearchError   READ tmdbSearchError   NOTIFY tmdbStateChanged)
+    Q_PROPERTY(QVariantList tmdbCandidates    READ tmdbCandidates    NOTIFY tmdbStateChanged)
+    Q_PROPERTY(int          selectedTmdbId    READ selectedTmdbId    NOTIFY selectionChanged)
 
     // ---- Selected movie (detail-pane surface) -----------------------------
     Q_PROPERTY(bool    hasSelection         READ hasSelection         NOTIFY selectionChanged)
@@ -93,6 +109,11 @@ public:
     explicit LibraryController(QObject* parent = nullptr);
     ~LibraryController() override;
 
+    // Wire a TMDb client. Optional — leaving it null disables the
+    // Find-on-TMDb actions but the rest of the app keeps working.
+    // Non-owning; the application owns the client.
+    void setTmdbClient(TmdbClient* client);
+
     // ---- Property getters ------------------------------------------------
     QString libraryPath()   const { return m_libraryPath; }
     bool    libraryOpen()   const;
@@ -104,6 +125,18 @@ public:
     QString importStage()      const { return m_importStage; }
     int     importCurrent()    const { return m_importCurrent; }
     int     importTotal()      const { return m_importTotal; }
+
+    bool        previewActive()       const { return m_previewActive; }
+    int         previewMovieCount()   const { return int(m_previewMovies.size()); }
+    QStringList previewSampleTitles() const;
+    QString     previewSourceName()   const { return m_previewSourceName; }
+    QString     previewImagesDir()    const { return m_previewImagesDir; }
+
+    bool         tmdbAvailable()   const { return m_tmdb != nullptr; }
+    bool         tmdbSearching()   const { return m_tmdbSearching; }
+    QString      tmdbSearchError() const { return m_tmdbSearchError; }
+    QVariantList tmdbCandidates()  const;
+    int          selectedTmdbId()  const { return m_selected.tmdbId; }
 
     bool    hasSelection() const          { return !m_selectedId.isEmpty(); }
     QString selectedId() const            { return m_selectedId; }
@@ -147,12 +180,38 @@ public:
 
     // ---- QML-facing actions ----------------------------------------------
     Q_INVOKABLE bool openLibrary(const QString& path);
+
+    // Two-phase XML import for the GUI:
+    //   beginImport(xml, imagesDir)  → parses in a worker, then exposes
+    //                                  previewMovieCount/previewSampleTitles
+    //                                  for the preview dialog
+    //   commitImport()               → writes the parsed Movies to the DB
+    //                                  (this is the slow step; uses the
+    //                                  importCurrent/importTotal progress)
+    //   cancelImport()               → drops the parsed result, no DB write
+    Q_INVOKABLE bool beginImport(const QString& xmlPath,
+                                 const QString& imagesDir = {});
+    Q_INVOKABLE bool commitImport();
+    Q_INVOKABLE void cancelImport();
+
+    // One-shot: convenience for the CLI path. Parses + writes in one call,
+    // skipping the preview gate. Returns true if the worker was started.
     Q_INVOKABLE bool importDvdProfilerXml(const QString& xmlPath,
                                           const QString& imagesDir = {});
+
     Q_INVOKABLE void refresh();
     Q_INVOKABLE void search(const QString& query);
     Q_INVOKABLE void selectMovie(const QString& id);
     Q_INVOKABLE void clearSelection();
+
+    // ---- TMDb actions ----------------------------------------------------
+    // Trigger /search/movie with the currently selected movie's title and
+    // year. Result lands in the tmdbCandidates property (async).
+    Q_INVOKABLE void searchSelectedOnTmdb();
+    // Persist the chosen TMDb id onto the currently selected movie.
+    Q_INVOKABLE void pickTmdbMatch(int tmdbId);
+    // Drop the link without re-searching.
+    Q_INVOKABLE void clearTmdbCandidates();
 
     // Convenience for the QML File-Open dialog: strips the file:// prefix.
     Q_INVOKABLE static QString urlToLocalPath(const QString& url);
@@ -164,11 +223,17 @@ signals:
     void selectionChanged();
     void importStateChanged();
     void importFinished(int imported, const QString& errorString);
+    void tmdbStateChanged();
+    void tmdbMatchPicked(const QString& movieId, int tmdbId);
 
 private:
     void setStatus_(const QString& message);
 
     // Async import support ---------------------------------------------------
+    struct ParseOutcome {
+        QList<Movie> movies;
+        QString      errorString;
+    };
     struct ImportOutcome {
         int     imported = 0;
         QString errorString;
@@ -177,6 +242,8 @@ private:
     void onImportRangeChanged_(int min, int max);
     void onImportFinished_();
     void setImportStage_(const QString& stage);
+    void onParseFinished_();
+    void runWriter_(QList<Movie> movies, bool autoCommit);
 
     std::unique_ptr<Database>         m_db;
     std::unique_ptr<MovieRepository>  m_repo;
@@ -194,6 +261,18 @@ private:
     int                             m_importCurrent = 0;
     int                             m_importTotal   = 0;
     QFutureWatcher<ImportOutcome>   m_importWatcher;
+    QFutureWatcher<ParseOutcome>    m_parseWatcher;
+
+    bool                            m_previewActive = false;
+    QList<Movie>                    m_previewMovies;
+    QString                         m_previewSourceName;
+    QString                         m_previewImagesDir;
+
+    TmdbClient*                     m_tmdb = nullptr;
+    bool                            m_tmdbSearching = false;
+    QString                         m_tmdbSearchError;
+    QString                         m_tmdbSearchingForId;   // movie id we're searching for
+    QList<TmdbCandidate>            m_tmdbCandidates;
 };
 
 } // namespace xyz

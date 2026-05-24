@@ -1,8 +1,10 @@
 #include "controllers/LibraryController.h"
+#include "controllers/SettingsController.h"
 #include "db/Database.h"
 #include "db/Migrations.h"
 #include "db/MovieRepository.h"
 #include "importers/dvdprofiler/DvdProfilerXmlImporter.h"
+#include "tmdb/TmdbClient.h"
 
 #include <QCommandLineParser>
 #include <QCoreApplication>
@@ -12,7 +14,10 @@
 #include <QIcon>
 #include <QLibraryInfo>
 #include <QLocale>
+#include <QNetworkAccessManager>
+#include <QNetworkDiskCache>
 #include <QQmlApplicationEngine>
+#include <QQmlNetworkAccessManagerFactory>
 #include <QQuickStyle>
 #include <QStandardPaths>
 #include <QTranslator>
@@ -110,6 +115,40 @@ QString defaultLibraryPath()
     return dir + QStringLiteral("/library.db");
 }
 
+// Per-user cache for network responses (TMDb JSON + poster JPEGs).
+QString networkCachePath()
+{
+    const QString dir = QStandardPaths::writableLocation(
+        QStandardPaths::CacheLocation) + QStringLiteral("/network");
+    QDir().mkpath(dir);
+    return dir;
+}
+
+// Factory the QML engine uses to create a QNetworkAccessManager for
+// `Image { source: "https://..." }` and other URL-based loaders. Each
+// instance gets its own QNetworkDiskCache rooted at the same on-disk
+// directory; QNetworkDiskCache is thread-safe across processes/threads
+// sharing a directory.
+class CachedNamFactory : public QQmlNetworkAccessManagerFactory {
+public:
+    explicit CachedNamFactory(QString cacheDir, qint64 maxBytes = 256LL * 1024 * 1024)
+        : m_cacheDir(std::move(cacheDir)), m_maxBytes(maxBytes) {}
+
+    QNetworkAccessManager* create(QObject* parent) override
+    {
+        auto* nam   = new QNetworkAccessManager(parent);
+        auto* cache = new QNetworkDiskCache(nam);
+        cache->setCacheDirectory(m_cacheDir);
+        cache->setMaximumCacheSize(m_maxBytes);
+        nam->setCache(cache);
+        return nam;
+    }
+
+private:
+    QString m_cacheDir;
+    qint64  m_maxBytes;
+};
+
 // ---------------------------------------------------------------------------
 // GUI mode: Material-styled QQuickWindow driven by LibraryController.
 // ---------------------------------------------------------------------------
@@ -142,7 +181,41 @@ int runGui(int argc, char* argv[],
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
 
+    // Shared on-disk cache for TMDb JSON + poster JPEGs. Reusing one
+    // directory across the API client and the QML image loader lets
+    // posters survive restarts and avoids re-downloading them in the
+    // grid + detail view.
+    const QString cacheDir = networkCachePath();
+
+    auto* appNam = new QNetworkAccessManager(&app);
+    {
+        auto* cache = new QNetworkDiskCache(appNam);
+        cache->setCacheDirectory(cacheDir);
+        cache->setMaximumCacheSize(256LL * 1024 * 1024);
+        appNam->setCache(cache);
+    }
+
+    // User settings — persisted to AppConfig/xyz-profiler.ini.
+    xyz::SettingsController settings;
+
+    // TMDb client — key precedence is settings.tmdbApiKey > TMDB_API_KEY env.
+    xyz::TmdbClient tmdbClient(xyz::SettingsController::resolveTmdbApiKey(settings),
+                               appNam);
+    if (tmdbClient.hasApiKey()) {
+        tmdbClient.fetchConfiguration();   // background warm-up
+    } else {
+        qInfo().noquote()
+            << "TMDB_API_KEY not configured — TMDb actions will be disabled.";
+    }
+    // React to runtime key changes from the Settings dialog.
+    QObject::connect(&settings, &xyz::SettingsController::tmdbApiKeyChanged,
+                     &tmdbClient, [&]() {
+        tmdbClient.setApiKey(xyz::SettingsController::resolveTmdbApiKey(settings));
+        if (tmdbClient.hasApiKey()) tmdbClient.fetchConfiguration();
+    });
+
     xyz::LibraryController controller;
+    controller.setTmdbClient(&tmdbClient);
     Q_UNUSED(libraryRootOverride);
 
     // Always open a library on startup — the default lives in AppData and
@@ -152,13 +225,20 @@ int runGui(int argc, char* argv[],
                                 : libraryOverride;
     controller.openLibrary(libPath);
 
-    // Expose the controller as `LibraryController` to QML, using the
-    // application-owned instance. Must run before loadFromModule so that
-    // QML's first binding evaluation sees the singleton already in place.
+    // Expose controllers as QML singletons backed by the application-
+    // owned instances. Must run before loadFromModule so QML's first
+    // binding evaluation sees them already in place.
     qmlRegisterSingletonInstance("xyz.profiler", 1, 0, "LibraryController",
                                  &controller);
+    qmlRegisterSingletonInstance("xyz.profiler", 1, 0, "SettingsController",
+                                 &settings);
 
     QQmlApplicationEngine engine;
+    // QML engine instantiates a NAM per worker thread; route them all
+    // through our cache directory so Image downloads (e.g. TMDb poster
+    // thumbnails) persist across runs.
+    engine.setNetworkAccessManagerFactory(new CachedNamFactory(cacheDir));
+
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
                      &app, []() { QCoreApplication::exit(-1); },
                      Qt::QueuedConnection);

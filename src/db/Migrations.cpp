@@ -246,6 +246,17 @@ const QStringList kV1Statements = {
     )sql"),
 };
 
+// ---------------------------------------------------------------------------
+// Migration v2 — TMDb integration
+//
+// Adds the nullable tmdb_id link column plus a lookup index. Existing rows
+// keep tmdb_id = NULL until the user matches them via the TMDb dialog.
+// ---------------------------------------------------------------------------
+const QStringList kV2Statements = {
+    QStringLiteral("ALTER TABLE movies ADD COLUMN tmdb_id INTEGER"),
+    QStringLiteral("CREATE INDEX idx_movies_tmdb_id ON movies(tmdb_id)"),
+};
+
 bool exec(QSqlQuery& q, const QString& sql, QString* err)
 {
     if (!q.exec(sql)) {
@@ -280,6 +291,11 @@ bool applyMigration(QSqlQuery& q, int version, QString* err)
             if (!exec(q, sql, err)) return false;
         }
         return true;
+    case 2:
+        for (const auto& sql : kV2Statements) {
+            if (!exec(q, sql, err)) return false;
+        }
+        return true;
     default:
         if (err) *err = QStringLiteral("Unknown migration version %1").arg(version);
         return false;
@@ -290,7 +306,7 @@ bool applyMigration(QSqlQuery& q, int version, QString* err)
 
 int Migrations::latestVersion()
 {
-    return 1;
+    return 2;
 }
 
 int Migrations::currentVersion(Database& db, QString* errorString)

@@ -40,6 +40,7 @@ struct Movie : MediaItem {
     QStringList       features;
     QString           otherFeatures;
     MediaBanners      mediaBanners;
+    int               tmdbId = 0;        // 0 = not yet matched against TMDb
 };
 
 } // namespace xyz

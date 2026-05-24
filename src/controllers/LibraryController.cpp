@@ -5,6 +5,7 @@
 #include "db/MovieRepository.h"
 #include "importers/dvdprofiler/DvdProfilerXmlImporter.h"
 #include "models/MovieListModel.h"
+#include "tmdb/TmdbClient.h"
 
 #include <QFileInfo>
 #include <QPromise>
@@ -86,6 +87,25 @@ LibraryController::LibraryController(QObject* parent)
             this, &LibraryController::setImportStage_);
     connect(&m_importWatcher, &QFutureWatcher<ImportOutcome>::finished,
             this, &LibraryController::onImportFinished_);
+
+    connect(&m_parseWatcher, &QFutureWatcher<ParseOutcome>::finished,
+            this, &LibraryController::onParseFinished_);
+}
+
+QStringList LibraryController::previewSampleTitles() const
+{
+    QStringList out;
+    const int take = std::min<int>(8, int(m_previewMovies.size()));
+    out.reserve(take);
+    for (int i = 0; i < take; ++i) {
+        const auto& m = m_previewMovies[i];
+        if (m.productionYear > 0) {
+            out << QStringLiteral("%1  (%2)").arg(m.title).arg(m.productionYear);
+        } else {
+            out << m.title;
+        }
+    }
+    return out;
 }
 
 LibraryController::~LibraryController() = default;
@@ -136,6 +156,94 @@ bool LibraryController::openLibrary(const QString& path)
     return true;
 }
 
+bool LibraryController::beginImport(const QString& xmlPath, const QString& imagesDir)
+{
+    if (m_importInProgress) {
+        setStatus_(tr("Import already running"));
+        return false;
+    }
+    if (!m_repo) {
+        setStatus_(tr("No library open"));
+        return false;
+    }
+
+    const QString localXml    = urlToLocalPath(xmlPath);
+    const QString localImages = urlToLocalPath(imagesDir);
+
+    // Reset any leftover preview from a cancelled prior attempt.
+    m_previewActive = false;
+    m_previewMovies.clear();
+    m_previewSourceName = QFileInfo(localXml).fileName();
+    m_previewImagesDir  = localImages;
+    m_importInProgress  = true;
+    m_importStage       = tr("Reading Collection.xml…");
+    m_importCurrent     = 0;
+    m_importTotal       = 0;
+    emit importStateChanged();
+    setStatus_(tr("Reading %1…").arg(m_previewSourceName));
+
+    // Parse runs on a worker thread; we don't touch the DB yet.
+    auto task = [localXml, localImages]() -> ParseOutcome {
+        ParseOutcome out;
+        DvdProfilerXmlImporter importer(localImages);
+        auto res = importer.importFile(localXml);
+        if (!res.ok) {
+            out.errorString = res.errorString;
+            return out;
+        }
+        out.movies = std::move(res.movies);
+        return out;
+    };
+    m_parseWatcher.setFuture(QtConcurrent::run(task));
+    return true;
+}
+
+void LibraryController::onParseFinished_()
+{
+    const auto outcome = m_parseWatcher.result();
+    m_importInProgress = false;
+    m_importStage.clear();
+
+    if (!outcome.errorString.isEmpty()) {
+        m_previewMovies.clear();
+        m_previewActive = false;
+        emit importStateChanged();
+        setStatus_(tr("Import failed: %1").arg(outcome.errorString));
+        emit importFinished(0, outcome.errorString);
+        return;
+    }
+
+    m_previewMovies = outcome.movies;
+    m_previewActive = true;
+    emit importStateChanged();
+    setStatus_(tr("Ready to import %1 movies — confirm to write").arg(previewMovieCount()));
+}
+
+bool LibraryController::commitImport()
+{
+    if (!m_previewActive || m_previewMovies.isEmpty()) return false;
+    if (m_importInProgress) return false;
+
+    QList<Movie> movies = std::move(m_previewMovies);
+    m_previewMovies.clear();
+    m_previewActive = false;
+    // Status fields are reset by runWriter_.
+    runWriter_(std::move(movies), /*autoCommit=*/false);
+    return true;
+}
+
+void LibraryController::cancelImport()
+{
+    if (!m_previewActive) return;
+    m_previewActive = false;
+    m_previewMovies.clear();
+    m_previewSourceName.clear();
+    m_previewImagesDir.clear();
+    emit importStateChanged();
+    setStatus_(tr("Import cancelled"));
+    emit importFinished(0, {});
+}
+
 bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
                                              const QString& imagesDir)
 {
@@ -151,29 +259,31 @@ bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
 
     const QString localXml    = urlToLocalPath(xmlPath);
     const QString localImages = urlToLocalPath(imagesDir);
+    DvdProfilerXmlImporter importer(localImages);
+    auto res = importer.importFile(localXml);
+    if (!res.ok) {
+        setStatus_(tr("Import failed: %1").arg(res.errorString));
+        emit importFinished(0, res.errorString);
+        return false;
+    }
+    runWriter_(std::move(res.movies), /*autoCommit=*/true);
+    return true;
+}
+
+void LibraryController::runWriter_(QList<Movie> movies, bool /*autoCommit*/)
+{
     const QString dbPath      = m_libraryPath;
     const QString libraryRoot = m_libraryRoot;
 
-    // Snapshot of state for the worker — all captured by value so the
-    // worker doesn't reach back into LibraryController from another thread.
-    auto task = [localXml, localImages, dbPath, libraryRoot](QPromise<ImportOutcome>& promise)
+    // Capture by value — the worker runs on a different thread.
+    auto task = [movies = std::move(movies), dbPath, libraryRoot]
+                (QPromise<ImportOutcome>& promise) mutable
     {
         ImportOutcome out;
 
-        // Phase 1: read XML --------------------------------------------------
-        promise.setProgressValueAndText(0, QObject::tr("Reading Collection.xml…"));
-        DvdProfilerXmlImporter importer(localImages);
-        auto res = importer.importFile(localXml);
-        if (!res.ok) {
-            out.errorString = res.errorString;
-            promise.addResult(out);
-            return;
-        }
-        if (promise.isCanceled()) return;
-
-        // Phase 2: open a *worker-thread* DB connection ----------------------
-        // SQLite's Qt driver is one-connection-per-thread. We must NOT touch
-        // the main thread's Database/Repository here.
+        // Open a worker-thread DB connection. SQLite's Qt driver is
+        // one-connection-per-thread; do NOT touch the main thread's
+        // Database/Repository here.
         Database db;
         if (!db.open(dbPath)) {
             out.errorString = QObject::tr("DB open failed: %1").arg(db.errorString());
@@ -189,10 +299,10 @@ bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
         MovieRepository repo(db);
         repo.setLibraryRoot(libraryRoot);
 
-        // Phase 3: insert with per-row progress -----------------------------
-        const int total = int(res.movies.size());
+        const int total = int(movies.size());
         promise.setProgressRange(0, total);
-        promise.setProgressValueAndText(0, QObject::tr("Writing %1 movies to database…").arg(total));
+        promise.setProgressValueAndText(0,
+            QObject::tr("Writing %1 movies to database…").arg(total));
 
         auto conn = db.handle();
         if (!conn.transaction()) {
@@ -202,7 +312,7 @@ bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
         }
         for (int i = 0; i < total; ++i) {
             if (promise.isCanceled()) { conn.rollback(); return; }
-            if (!repo.insert(res.movies[i])) {
+            if (!repo.insert(movies[i])) {
                 conn.rollback();
                 out.errorString = repo.lastError();
                 promise.addResult(out);
@@ -221,15 +331,12 @@ bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
     };
 
     m_importInProgress = true;
-    m_importStage      = tr("Starting import…");
+    m_importStage      = tr("Writing to database…");
     m_importCurrent    = 0;
     m_importTotal      = 0;
     emit importStateChanged();
-    setStatus_(tr("Importing %1…").arg(QFileInfo(localXml).fileName()));
 
-    auto future = QtConcurrent::run(task);
-    m_importWatcher.setFuture(future);
-    return true;
+    m_importWatcher.setFuture(QtConcurrent::run(task));
 }
 
 void LibraryController::onImportProgressChanged_(int current)
@@ -413,6 +520,117 @@ QString LibraryController::selectedLoanDue() const
     return m_selected.loan.due.isValid()
                ? m_selected.loan.due.toString(Qt::ISODate)
                : QString();
+}
+
+// ---------------------------------------------------------------------------
+// TMDb integration
+// ---------------------------------------------------------------------------
+
+void LibraryController::setTmdbClient(TmdbClient* client)
+{
+    if (m_tmdb == client) return;
+    if (m_tmdb) m_tmdb->disconnect(this);
+    m_tmdb = client;
+    if (!m_tmdb) {
+        emit tmdbStateChanged();
+        return;
+    }
+    connect(m_tmdb, &TmdbClient::searchFinished, this,
+            [this](const QString&, int, const QList<TmdbCandidate>& hits, const QString& err)
+    {
+        m_tmdbSearching   = false;
+        m_tmdbSearchError = err;
+        m_tmdbCandidates  = hits;
+        emit tmdbStateChanged();
+        if (err.isEmpty()) {
+            setStatus_(tr("TMDb: %1 candidates").arg(hits.size()));
+        } else {
+            setStatus_(tr("TMDb search failed: %1").arg(err));
+        }
+    });
+    emit tmdbStateChanged();
+}
+
+QVariantList LibraryController::tmdbCandidates() const
+{
+    QVariantList out;
+    out.reserve(m_tmdbCandidates.size());
+    for (const auto& c : m_tmdbCandidates) {
+        QVariantMap m;
+        m.insert(QStringLiteral("id"),            c.id);
+        m.insert(QStringLiteral("title"),         c.title);
+        m.insert(QStringLiteral("originalTitle"), c.originalTitle);
+        m.insert(QStringLiteral("year"),          c.year());
+        m.insert(QStringLiteral("releaseDate"),   c.releaseDate);
+        m.insert(QStringLiteral("overview"),      c.overview);
+        m.insert(QStringLiteral("voteAverage"),   c.voteAverage);
+        m.insert(QStringLiteral("voteCount"),     c.voteCount);
+        m.insert(QStringLiteral("posterUrl"),
+                 m_tmdb ? m_tmdb->imageUrl(c.posterPath, QStringLiteral("w185"))
+                        : QString());
+        out << m;
+    }
+    return out;
+}
+
+void LibraryController::searchSelectedOnTmdb()
+{
+    if (!m_tmdb || !m_tmdb->hasApiKey()) {
+        setStatus_(tr("TMDb is not configured (set TMDB_API_KEY)"));
+        m_tmdbSearchError = tr("TMDb is not configured (set TMDB_API_KEY)");
+        m_tmdbCandidates.clear();
+        emit tmdbStateChanged();
+        return;
+    }
+    if (m_selectedId.isEmpty()) return;
+
+    m_tmdbSearching      = true;
+    m_tmdbSearchError.clear();
+    m_tmdbCandidates.clear();
+    m_tmdbSearchingForId = m_selectedId;
+    emit tmdbStateChanged();
+    setStatus_(tr("Searching TMDb for '%1'…").arg(m_selected.title));
+
+    m_tmdb->search(m_selected.title, m_selected.productionYear);
+}
+
+void LibraryController::pickTmdbMatch(int tmdbId)
+{
+    if (!m_repo) return;
+    if (m_selectedId.isEmpty() || tmdbId <= 0) return;
+
+    Movie m = m_selected;
+    m.tmdbId = tmdbId;
+    if (!m_repo->insert(m)) {
+        setStatus_(tr("Failed to persist TMDb match: %1").arg(m_repo->lastError()));
+        return;
+    }
+    m_selected = m;
+    m_tmdbCandidates.clear();
+    emit selectionChanged();
+    emit tmdbStateChanged();
+    emit tmdbMatchPicked(m.id, tmdbId);
+    setStatus_(tr("Linked to TMDb #%1").arg(tmdbId));
+    // Refresh the model so the selection sticks even when the cached list
+    // would otherwise hand back a stale Movie on the next selectMovie().
+    if (m_movies) {
+        const int idx = m_movies->indexOfId(m.id);
+        if (idx >= 0) {
+            // Replace in-place via setMovies — cheap for the controller
+            // since QList shares its data implicitly.
+            QList<Movie> next = m_movies->movies();
+            next[idx] = m;
+            m_movies->setMovies(std::move(next));
+        }
+    }
+}
+
+void LibraryController::clearTmdbCandidates()
+{
+    if (m_tmdbCandidates.isEmpty() && m_tmdbSearchError.isEmpty()) return;
+    m_tmdbCandidates.clear();
+    m_tmdbSearchError.clear();
+    emit tmdbStateChanged();
 }
 
 } // namespace xyz
