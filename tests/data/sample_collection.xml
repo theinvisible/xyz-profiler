@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Collection>
+  <DVD>
+    <ID>085391163926</ID>
+    <Title>The Matrix</Title>
+    <OriginalTitle>The Matrix</OriginalTitle>
+    <SortTitle>Matrix, The</SortTitle>
+    <ProductionYear>1999</ProductionYear>
+    <Released>1999-09-21</Released>
+    <RunningTime>136</RunningTime>
+    <Overview>A computer hacker learns about the true nature of reality.</Overview>
+    <Notes>Limited Steelbook edition.</Notes>
+    <MediaTypes>
+      <DVD>true</DVD>
+      <BluRay>false</BluRay>
+      <HDDVD>false</HDDVD>
+      <UltraHD>false</UltraHD>
+    </MediaTypes>
+    <Genres>
+      <Genre>Action</Genre>
+      <Genre>Science Fiction</Genre>
+    </Genres>
+    <Actors>
+      <Actor FirstName="Keanu" LastName="Reeves" Role="Neo" />
+      <Actor FirstName="Laurence" LastName="Fishburne" Role="Morpheus" />
+      <Actor FirstName="Carrie-Anne" LastName="Moss" Role="Trinity" />
+    </Actors>
+    <Credits>
+      <Credit FirstName="Lana" LastName="Wachowski"
+              CreditType="Direction" CreditSubtype="Director" />
+      <Credit FirstName="Lilly" LastName="Wachowski"
+              CreditType="Direction" CreditSubtype="Director" />
+    </Credits>
+    <Studios>
+      <Studio>Warner Bros.</Studio>
+    </Studios>
+    <Audio>
+      <AudioTrack>
+        <AudioContent>English</AudioContent>
+        <AudioFormat>Dolby Digital</AudioFormat>
+        <AudioChannels>5.1</AudioChannels>
+      </AudioTrack>
+      <AudioTrack>
+        <AudioContent>German</AudioContent>
+        <AudioFormat>Dolby Digital</AudioFormat>
+        <AudioChannels>5.1</AudioChannels>
+      </AudioTrack>
+    </Audio>
+    <Subtitles>
+      <Subtitle>English</Subtitle>
+      <Subtitle>German</Subtitle>
+      <Subtitle>French</Subtitle>
+    </Subtitles>
+    <Discs>
+      <Disc>
+        <DescriptionSideA>Main Feature</DescriptionSideA>
+        <DiscIDSideA>1A2B-3C4D-5E6F</DiscIDSideA>
+        <LabelSideA>MATRIX</LabelSideA>
+        <DualLayeredSideA>true</DualLayeredSideA>
+        <DualSided>false</DualSided>
+      </Disc>
+    </Discs>
+    <Tags>
+      <Tag>watched</Tag>
+      <Tag>favourite</Tag>
+    </Tags>
+    <CustomFields>
+      <CustomField Name="Shelf" Value="A-1" />
+      <CustomField Name="Rating" Value="5" />
+    </CustomFields>
+    <BoxSet>
+      <Parent/>
+      <Contents>
+        <Content>085391163927</Content>
+        <Content>085391163928</Content>
+      </Contents>
+    </BoxSet>
+    <PurchaseInfo>
+      <PurchasePrice DenominationType="EUR" DenominationDesc="Europe (Euro)" FormattedValue="14,99 EUR">14.99</PurchasePrice>
+      <PurchasePlace>Saturn</PurchasePlace>
+      <PurchaseDate>2004-05-12</PurchaseDate>
+      <ReceivedAsGift>false</ReceivedAsGift>
+      <GiftFrom FirstName="" LastName=""/>
+    </PurchaseInfo>
+  </DVD>
+
+  <DVD>
+    <ID>085391163927</ID>
+    <Title>The Matrix Reloaded</Title>
+    <OriginalTitle>The Matrix Reloaded</OriginalTitle>
+    <ProductionYear>2003</ProductionYear>
+    <Released>2003-05-15</Released>
+    <RunningTime>138</RunningTime>
+    <BoxSet>
+      <Parent>085391163926</Parent>
+      <Contents/>
+    </BoxSet>
+    <MediaTypes>
+      <DVD>true</DVD>
+    </MediaTypes>
+    <Genres>
+      <Genre>Action</Genre>
+      <Genre>Science Fiction</Genre>
+    </Genres>
+    <Studios>
+      <Studio>Warner Bros.</Studio>
+    </Studios>
+  </DVD>
+
+  <DVD>
+    <ID>883929665174</ID>
+    <Title>Inception</Title>
+    <OriginalTitle>Inception</OriginalTitle>
+    <ProductionYear>2010</ProductionYear>
+    <Released>2010-12-07</Released>
+    <RunningTime>148</RunningTime>
+    <Overview>A thief who steals corporate secrets through dream-sharing technology.</Overview>
+    <MediaTypes>
+      <DVD>false</DVD>
+      <BluRay>true</BluRay>
+    </MediaTypes>
+    <Genres>
+      <Genre>Action</Genre>
+      <Genre>Science Fiction</Genre>
+      <Genre>Thriller</Genre>
+    </Genres>
+    <Actors>
+      <Actor FirstName="Leonardo" LastName="DiCaprio" Role="Cobb" />
+      <Actor FirstName="Joseph" LastName="Gordon-Levitt" Role="Arthur" />
+    </Actors>
+    <Credits>
+      <Credit FirstName="Christopher" LastName="Nolan"
+              CreditType="Direction" CreditSubtype="Director" />
+    </Credits>
+    <Studios>
+      <Studio>Warner Bros.</Studio>
+      <Studio>Legendary Pictures</Studio>
+    </Studios>
+    <Audio>
+      <AudioTrack>
+        <AudioContent>English</AudioContent>
+        <AudioFormat>DTS-HD Master Audio</AudioFormat>
+        <AudioChannels>5.1</AudioChannels>
+      </AudioTrack>
+    </Audio>
+    <Subtitles>
+      <Subtitle>English</Subtitle>
+    </Subtitles>
+  </DVD>
+
+  <DVD>
+    <ID>097363428947</ID>
+    <Title>Spirited Away</Title>
+    <OriginalTitle>千と千尋の神隠し</OriginalTitle>
+    <ProductionYear>2001</ProductionYear>
+    <Released>2003-04-15</Released>
+    <RunningTime>125</RunningTime>
+    <MediaTypes>
+      <DVD>true</DVD>
+    </MediaTypes>
+    <Genres>
+      <Genre>Animation</Genre>
+      <Genre>Family</Genre>
+      <Genre>Fantasy</Genre>
+    </Genres>
+    <Credits>
+      <Credit FirstName="Hayao" LastName="Miyazaki"
+              CreditType="Direction" CreditSubtype="Director" />
+    </Credits>
+    <Studios>
+      <Studio>Studio Ghibli</Studio>
+    </Studios>
+  </DVD>
+</Collection>
