@@ -70,6 +70,8 @@ target_include_directories(xyz_db
 # QML_ELEMENT / QML_SINGLETON and picked up by qt_add_qml_module().
 qt_add_executable(xyz-profiler
     main.cpp
+    ${CMAKE_SOURCE_DIR}/resources/app.qrc
+    $<$<PLATFORM_ID:Windows>:${CMAKE_SOURCE_DIR}/resources/app.rc>
 )
 
 qt_add_qml_module(xyz-profiler
@@ -88,6 +90,25 @@ qt_add_qml_module(xyz-profiler
     # putting the module there lets `loadFromModule("xyz.profiler", "Main")`
     # work without an extra `engine.addImportPath()` call in main.
     RESOURCE_PREFIX /qt/qml
+)
+
+# Expose project version to C++ so the about dialog / window title can
+# show it, and so the GitHub workflow can extract it from CMakeLists.txt
+# via regex.
+target_compile_definitions(xyz-profiler PRIVATE
+    APP_VERSION_STRING="${PROJECT_VERSION}"
+)
+
+# ---- Translations --------------------------------------------------------
+# .ts → .qm at build time, embedded under :/i18n. main.cpp picks the best
+# match for QLocale::system() and silently falls back to the source
+# language (English) when no .qm matches.
+set(TS_FILES
+    ${CMAKE_SOURCE_DIR}/translations/xyz-profiler_de.ts
+)
+qt_add_translations(xyz-profiler
+    TS_FILES ${TS_FILES}
+    RESOURCE_PREFIX "/i18n"
 )
 
 target_link_libraries(xyz-profiler

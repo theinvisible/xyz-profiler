@@ -9,9 +9,13 @@
 #include <QDebug>
 #include <QDir>
 #include <QGuiApplication>
+#include <QIcon>
+#include <QLibraryInfo>
+#include <QLocale>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QStandardPaths>
+#include <QTranslator>
 
 namespace {
 
@@ -115,8 +119,26 @@ int runGui(int argc, char* argv[],
 {
     QGuiApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("xyz-profiler"));
-    QCoreApplication::setApplicationVersion(QStringLiteral("0.3.0"));
+    QCoreApplication::setApplicationVersion(QStringLiteral(APP_VERSION_STRING));
     QCoreApplication::setOrganizationName(QStringLiteral("xyz-profiler"));
+
+    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/app.ico")));
+
+    // Pick the best-matching app translation for the system locale; if none
+    // matches we silently fall back to the source language (English).
+    static QTranslator appTranslator;
+    if (appTranslator.load(QLocale(), QStringLiteral("xyz-profiler"),
+                           QStringLiteral("_"), QStringLiteral(":/i18n"))) {
+        QGuiApplication::installTranslator(&appTranslator);
+    }
+    // Standard Qt dialog strings ("OK"/"Cancel"/…) — load from Qt's
+    // shipped translations dir if a matching .qm is there.
+    static QTranslator qtTranslator;
+    const QString qtTrDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
+    if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"),
+                          QStringLiteral("_"), qtTrDir)) {
+        QGuiApplication::installTranslator(&qtTranslator);
+    }
 
     QQuickStyle::setStyle(QStringLiteral("Material"));
 

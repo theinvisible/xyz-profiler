@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.21)
 
 project(xyz-profiler
-    VERSION 0.1.0
+    VERSION 0.3.0
     DESCRIPTION "DVD / Blu-ray collection manager (XYZ-Profiler)"
     LANGUAGES CXX
 )
@@ -14,37 +14,50 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Default Qt installation paths — overridden by -DCMAKE_PREFIX_PATH=... or
-# the Qt6_DIR env var if those are set.
-if(NOT DEFINED CMAKE_PREFIX_PATH AND NOT DEFINED ENV{CMAKE_PREFIX_PATH})
-    if(WIN32)
-        set(_xyz_qt_candidates
-            "H:/Qt/6.11.1/msvc2022_64"
-            "C:/Qt/6.11.1/msvc2022_64"
-            "C:/Qt/6.6.0/msvc2019_64"
-        )
-        foreach(_qt_path IN LISTS _xyz_qt_candidates)
-            if(EXISTS "${_qt_path}/lib/cmake/Qt6/Qt6Config.cmake")
-                set(CMAKE_PREFIX_PATH "${_qt_path}" CACHE PATH "Qt6 install prefix")
-                message(STATUS "xyz-profiler: using Qt at ${_qt_path}")
+# Try the standard find_package first — covers CI (install-qt-action sets
+# Qt6_DIR / CMAKE_PREFIX_PATH) and any explicit user-supplied prefix.
+find_package(Qt6 6.5 QUIET COMPONENTS
+    Core Concurrent Gui Qml Quick QuickControls2 Sql Test LinguistTools)
+
+# Local-dev fallback: scan known Qt roots (Desktop: H:/Qt, Notebook: C:/Qt)
+# for the newest 6.x MSVC/MinGW kit. Keeps onboarding zero-friction: drop
+# a Qt install anywhere under H:/Qt and CMake finds it.
+if(NOT Qt6_FOUND)
+    set(_qt_search_roots "H:/Qt" "C:/Qt")
+    set(_qt_found_dir "")
+    foreach(_qt_root IN LISTS _qt_search_roots)
+        file(GLOB _qt_versions LIST_DIRECTORIES true "${_qt_root}/6.*")
+        list(SORT _qt_versions ORDER DESCENDING)
+        foreach(_qt_ver IN LISTS _qt_versions)
+            file(GLOB _qt_kits LIST_DIRECTORIES true
+                 "${_qt_ver}/msvc*_64" "${_qt_ver}/mingw*_64")
+            foreach(_qt_kit IN LISTS _qt_kits)
+                if(EXISTS "${_qt_kit}/lib/cmake/Qt6/Qt6Config.cmake")
+                    set(_qt_found_dir "${_qt_kit}")
+                    break()
+                endif()
+            endforeach()
+            if(_qt_found_dir)
                 break()
             endif()
         endforeach()
-        unset(_xyz_qt_candidates)
-        unset(_qt_path)
+        if(_qt_found_dir)
+            break()
+        endif()
+    endforeach()
+    if(_qt_found_dir)
+        set(Qt6_DIR "${_qt_found_dir}/lib/cmake/Qt6" CACHE PATH "Qt6 config dir" FORCE)
+        list(PREPEND CMAKE_PREFIX_PATH "${_qt_found_dir}")
+        set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" CACHE STRING "" FORCE)
+        message(STATUS "Auto-detected Qt6 at ${_qt_found_dir}")
+        find_package(Qt6 6.5 REQUIRED COMPONENTS
+            Core Concurrent Gui Qml Quick QuickControls2 Sql Test LinguistTools)
+    else()
+        message(FATAL_ERROR
+            "Qt6 not found — set Qt6_DIR / CMAKE_PREFIX_PATH or drop a Qt "
+            "install under H:/Qt or C:/Qt.")
     endif()
 endif()
-
-find_package(Qt6 6.5 REQUIRED COMPONENTS
-    Core
-    Concurrent
-    Gui
-    Qml
-    Quick
-    QuickControls2
-    Sql
-    Test
-)
 # Network/Xml come in with the TMDb client (Roadmap phase 5).
 
 qt_standard_project_setup()

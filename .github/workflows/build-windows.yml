@@ -1,0 +1,170 @@
+name: Build (Windows)
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*.*.*']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  # Needed by the conditional release-attach step on tag pushes. Read-only otherwise.
+  contents: write
+
+jobs:
+  windows:
+    # Pinned to windows-2022: windows-latest rolls to a VS-2026-based image on
+    # 2026-06-15 which lacks the VS 2022 install layout that Qt's
+    # win64_msvc2022_64 binaries and ilammy/msvc-dev-cmd expect.
+    runs-on: windows-2022
+
+    env:
+      # 6.11.x repo layout changed; aqtinstall 3.3.0 still constructs broken
+      # paths. Stay on the last working 6.10 release until aqtinstall tags
+      # a new version with PR #1000 merged.
+      QT_VERSION: 6.10.2
+      QT_DIR: C:/Qt
+      BUILD_DIR: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: windows
+          target: desktop
+          arch: win64_msvc2022_64
+          # QtQuick / QtQuickControls2 / QtConcurrent ship as part of the
+          # base install. Listing them explicitly is safe and documents
+          # what we depend on.
+          modules: 'qt5compat qtimageformats'
+          dir: ${{ env.QT_DIR }}
+          cache: true
+
+      # MSVC env vars (INCLUDE, LIB, PATH) must be exported BEFORE configure
+      # so cl.exe/link.exe and rc.exe see the Windows SDK paths. Mirrors
+      # what vcvars64.bat does locally.
+      - name: Setup MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Setup Ninja
+        uses: seanmiddleditch/gha-setup-ninja@v5
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S . -B "${{ env.BUILD_DIR }}" -G Ninja `
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        shell: pwsh
+        run: cmake --build "${{ env.BUILD_DIR }}" --target xyz-profiler -j
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          cmake --build "${{ env.BUILD_DIR }}" -j
+          ctest --test-dir "${{ env.BUILD_DIR }}" --output-on-failure
+
+      # Stage a standalone, runnable directory. windeployqt already put
+      # Qt DLLs + QML modules + platform plugins next to the .exe via the
+      # POST_BUILD step in src/CMakeLists.txt.
+      - name: Package ZIP
+        shell: pwsh
+        run: |
+          $stage = "stage/xyz-profiler"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $bld = "${{ env.BUILD_DIR }}"
+
+          Copy-Item "$bld/xyz-profiler.exe" $stage
+          Get-ChildItem "$bld/*.dll" -File | Copy-Item -Destination $stage
+          # Plugin + QML module directories windeployqt produces.
+          foreach ($d in 'platforms','imageformats','iconengines','styles',
+                         'tls','generic','networkinformation','translations',
+                         'qml','sqldrivers') {
+            if (Test-Path "$bld/$d") { Copy-Item "$bld/$d" $stage -Recurse -Force }
+          }
+
+          $sha = "${{ github.sha }}".Substring(0,7)
+          $zip = "xyz-profiler-windows-x64-$sha.zip"
+          Compress-Archive -Path "stage/xyz-profiler" -DestinationPath $zip -Force
+          "ZIP=$zip" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xyz-profiler-windows-x64
+          path: ${{ env.ZIP }}
+          if-no-files-found: error
+          retention-days: 14
+
+      # Inno Setup ships as a Chocolatey package on windows-2022.
+      # ISCC.exe ends up at "C:\Program Files (x86)\Inno Setup 6\".
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found at $iscc after install." }
+          "ISCC=$iscc" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Extract project version
+        shell: pwsh
+        run: |
+          # Single source of truth: project(xyz-profiler VERSION x.y.z ...).
+          $content = Get-Content -Raw CMakeLists.txt
+          if ($content -match 'project\(xyz-profiler\s+VERSION\s+(\d+\.\d+\.\d+)') {
+            $version = $matches[1]
+            "APP_VERSION=$version" | Out-File -Append $env:GITHUB_ENV
+            Write-Host "Detected version: $version"
+          } else {
+            throw "Could not extract VERSION from CMakeLists.txt"
+          }
+
+      - name: Build Inno Setup installer
+        shell: pwsh
+        run: |
+          $staged = "$pwd\stage\xyz-profiler"
+          $appIco = "$pwd\resources\app.ico"
+          if (-not (Test-Path $staged)) { throw "Staged dir missing: $staged" }
+          if (-not (Test-Path $appIco)) { throw "App icon missing: $appIco" }
+
+          & "$env:ISCC" `
+            "/DAppVersion=${{ env.APP_VERSION }}" `
+            "/DStagedRoot=$staged" `
+            "/DAppIconFile=$appIco" `
+            "/Opackaging\windows" `
+            "packaging\windows\installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
+
+          $setup = "packaging\windows\xyz-profiler-${{ env.APP_VERSION }}-windows-x64-setup.exe"
+          if (-not (Test-Path $setup)) { throw "Setup .exe not produced: $setup" }
+          "SETUP_EXE=$setup" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: xyz-profiler-windows-x64-installer
+          path: ${{ env.SETUP_EXE }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Attach to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ZIP }}
+            ${{ env.SETUP_EXE }}
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          fail_on_unmatched_files: true
