@@ -16,7 +16,7 @@ QLabel* MovieDetailWidget::makeHeader(const QString& text)
     font.setPointSize(11);
     font.setBold(true);
     label->setFont(font);
-    label->setStyleSheet(QStringLiteral("color: #2979ff;"));
+    label->setStyleSheet(QStringLiteral("color: #3a7bd5;"));
     return label;
 }
 
@@ -49,7 +49,7 @@ static SectionWidgets makeSectionWithBody(
         f.setPointSize(11);
         f.setBold(true);
         header->setFont(f);
-        header->setStyleSheet(QStringLiteral("color: #2979ff;"));
+        header->setStyleSheet(QStringLiteral("color: #3a7bd5;"));
     }
 
     auto* body = new QLabel;
@@ -88,7 +88,7 @@ MovieDetailWidget::MovieDetailWidget(QWidget* parent)
         f.setItalic(true);
         m_placeholder->setFont(f);
     }
-    m_placeholder->setStyleSheet(QStringLiteral("color: #888888;"));
+    m_placeholder->setStyleSheet(QStringLiteral("color: #8b919e;"));
     m_rootLayout->addWidget(m_placeholder, 1, Qt::AlignCenter);
 
     m_content = new QWidget;
@@ -109,7 +109,7 @@ MovieDetailWidget::MovieDetailWidget(QWidget* parent)
 
     m_distTraitLabel = new QLabel;
     { QFont f = m_distTraitLabel->font(); f.setPointSize(12); m_distTraitLabel->setFont(f); }
-    m_distTraitLabel->setStyleSheet(QStringLiteral("color: #999999;"));
+    m_distTraitLabel->setStyleSheet(QStringLiteral("color: #8b919e;"));
     cl->addWidget(m_distTraitLabel);
 
     m_metaLineLabel = new QLabel;
@@ -129,7 +129,7 @@ MovieDetailWidget::MovieDetailWidget(QWidget* parent)
     tmdbL->setSpacing(8);
     m_tmdbIdLabel = new QLabel;
     { QFont f = m_tmdbIdLabel->font(); f.setPointSize(12); m_tmdbIdLabel->setFont(f); }
-    m_tmdbIdLabel->setStyleSheet(QStringLiteral("color: #2979ff;"));
+    m_tmdbIdLabel->setStyleSheet(QStringLiteral("color: #3a7bd5;"));
     tmdbL->addWidget(m_tmdbIdLabel);
     m_tmdbButton = new QPushButton(QStringLiteral("Find on TMDb…"));
     tmdbL->addWidget(m_tmdbButton);
@@ -140,7 +140,7 @@ MovieDetailWidget::MovieDetailWidget(QWidget* parent)
     // 4. Loan badge
     m_loanBadge = new QFrame;
     m_loanBadge->setStyleSheet(QStringLiteral(
-        "QFrame { background-color: #c62828; border-radius: 6px; padding: 8px; }"));
+        "QFrame { background-color: #8b2020; border-radius: 6px; padding: 8px; }"));
     auto* loanL = new QVBoxLayout(m_loanBadge);
     loanL->setContentsMargins(12, 8, 12, 8);
     loanL->setSpacing(2);

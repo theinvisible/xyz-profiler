@@ -30,15 +30,15 @@ constexpr int kBadgePadV      = 2;
 constexpr int kBadgeRadius    = 4;
 constexpr int kBadgeMargin    = 4;   // from cover edge
 
-// Colours
-const QColor kTileBg          {0x3c, 0x3c, 0x3f};
-const QColor kFooterBg        {0, 0, 0, 180};           // semi-transparent black
-const QColor kTextPrimary     {Qt::white};
-const QColor kTextSecondary   {255, 255, 255, 204};      // ~80 % opacity
-const QColor kPlaceholderText {0xa0, 0xa0, 0xa0};
-const QColor kSelectionColour {0x29, 0x79, 0xff};
-const QColor kBadgeLoaned     {0xd3, 0x2f, 0x2f};        // red
-const QColor kBadgeBoxSet     {0x15, 0x65, 0xc0};        // blue
+// Colours — matched to vram-task-manager dark palette
+const QColor kTileBg          {0x1e, 0x21, 0x28};
+const QColor kFooterBg        {0x14, 0x17, 0x1c, 210};
+const QColor kTextPrimary     {0xd8, 0xdd, 0xe5};
+const QColor kTextSecondary   {0xd8, 0xdd, 0xe5, 204};
+const QColor kPlaceholderText {0x8b, 0x91, 0x9e};
+const QColor kSelectionColour {0x3a, 0x7b, 0xd5};
+const QColor kBadgeLoaned     {0xd3, 0x2f, 0x2f};
+const QColor kBadgeBoxSet     {0x3a, 0x7b, 0xd5};
 
 } // anonymous namespace
 

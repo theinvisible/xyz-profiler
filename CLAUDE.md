@@ -10,8 +10,9 @@ target — Qt6 makes that essentially free as long as we stay platform-neutral.
 ## Stack
 
 - **Qt 6.5+**, C++20, CMake (≥ 3.21)
-- **UI: QML / Qt Quick** (Quick Controls 2, Material or Universal style).
-  Widgets are only used where QML has no good answer (rare). See conventions.
+- **UI: Qt Widgets** (Fusion style with dark/light/system QPalette +
+  stylesheet). Migrated from QML — Widgets are a better fit for this
+  data-heavy desktop app (QTableView, QHeaderView, QSplitter all built-in).
 - **Persistence:** SQLite via `Qt6::Sql`, FTS5 for full-text search.
 - **XML import:** `QXmlStreamReader` (streaming, scales to large collections).
 - **Online metadata:** TMDb via `QNetworkAccessManager` (replaces the dead
@@ -24,7 +25,8 @@ xyz-profiler/
 ├── CMakeLists.txt              Top-level: Qt setup, subdirs, ctest
 ├── src/
 │   ├── CMakeLists.txt
-│   ├── main.cpp                Currently a CLI smoke-test; becomes the QML host
+│   ├── main.cpp                Dual-mode: GUI (QApplication + MainWindow)
+│   │                           or CLI (positional Collection.xml arg)
 │   ├── domain/                Header-only data model (xyz_domain INTERFACE lib)
 │   │   ├── Person.h           name + middle + birthYear + role + voice/puppeteer/...
 │   │   ├── AudioTrack.h       content / format / channels
@@ -53,25 +55,26 @@ xyz-profiler/
 │   │   └── MovieRepository.h/.cpp  insert/bulk/getById/getAll/search (FTS5)
 │   ├── tmdb/                  TMDb v3 read API client (xyz_tmdb lib)
 │   │   ├── TmdbTypes.h        Candidate / MovieDetails / ImageConfig
-│   │   ├── TmdbClient.h/.cpp  Async search/movie/configuration
-│   ├── models/                QML-facing data presentation
-│   │   └── MovieListModel.h/.cpp  QAbstractListModel with named roles
-│   ├── controllers/           QML-facing imperative API
-│   │   ├── LibraryController.h/.cpp     Q_INVOKABLE actions, selection state,
-│   │   │                                 two-phase import (preview + commit),
-│   │   │                                 TMDb search + match
-│   │   └── SettingsController.h/.cpp    QSettings-backed prefs (TMDb key,
-│   │                                     images dir, theme)
-│   └── qml/                   QML view files (bundled via qt_add_qml_module)
-│       ├── Main.qml                ApplicationWindow shell + header / footer / split
-│       ├── CoverGrid.qml           GridView with lazy cover thumbnails + badges
-│       ├── MovieDetail.qml         Right-side detail pane (cast, crew, audio, …)
-│       ├── TmdbMatchDialog.qml     TMDb candidate picker
-│       ├── ImportPreviewDialog.qml Two-phase import confirmation
-│       └── SettingsDialog.qml      Persistent user settings editor
+│   │   └── TmdbClient.h/.cpp  Async search/movie/configuration
+│   ├── models/                Data models for views
+│   │   ├── MovieListModel.h/.cpp       QAbstractListModel (roles for cover grid)
+│   │   ├── MovieTableModel.h/.cpp      QAbstractTableModel (columns for table view)
+│   │   └── MovieSortProxyModel.h/.cpp  QSortFilterProxyModel for icon-view sorting
+│   ├── controllers/           Business logic, signals → UI
+│   │   ├── LibraryController.h/.cpp    Library open/import/search/select/TMDb
+│   │   └── SettingsController.h/.cpp   QSettings-backed prefs (INI file)
+│   └── ui/                    Qt Widgets UI layer
+│       ├── DarkFusionStyle.h/.cpp      Fusion dark/light/system theme setup
+│       ├── MainWindow.h/.cpp           QMainWindow: toolbar, splitter, stacked views
+│       ├── CoverGridWidget.h/.cpp      QListView IconMode + custom QStyledItemDelegate
+│       ├── MovieDetailWidget.h/.cpp    QScrollArea detail pane (460px, all sections)
+│       ├── TmdbMatchDialog.h/.cpp      TMDb candidate picker with poster thumbnails
+│       ├── ImportPreviewDialog.h/.cpp  Two-phase import confirmation
+│       └── SettingsDialog.h/.cpp       TMDb key, images dir, theme editor
 └── tests/
     ├── CMakeLists.txt
-    ├── test_collection_xml_reader.cpp   QtTest, registered with ctest
+    ├── test_dvdprofiler_xml_importer.cpp   QtTest, registered with ctest
+    ├── test_movie_repository.cpp
     └── data/
         └── sample_collection.xml
 ```
@@ -83,9 +86,6 @@ later — `MediaItem` already covers what films and games share (title, year,
 genres, credits/developers, tags, purchase info, covers, custom fields), and
 a future `Game : MediaItem` would slot in beside `Movie` without disturbing
 the importer or repository contracts.
-
-All Phase-1-through-Phase-6 modules are now in place. The roadmap below
-tracks remaining items.
 
 ## Build & test
 
@@ -104,8 +104,8 @@ ctest --test-dir build --output-on-failure
 The top-level `CMakeLists.txt` auto-detects common Qt install locations
 (currently `H:/Qt/6.11.1/msvc2022_64`, plus `C:/Qt/...` fallbacks). Override
 with `-DCMAKE_PREFIX_PATH=...` or the matching environment variable for a
-different Qt install. Required modules: Core / Gui / Widgets / Quick / Qml /
-Sql / Network / Xml / Test.
+different Qt install. Required modules: Core / Concurrent / Gui / Network /
+Widgets / Sql / Svg / Test / LinguistTools.
 
 ## Status
 
@@ -113,202 +113,82 @@ Sql / Network / Xml / Test.
 
 - CMake skeleton (Win + Linux), C++20, AUTOMOC
 - Modular domain layer in `src/domain/` (header-only `xyz_domain` INTERFACE
-  lib) — `MediaItem` base + `Movie` specialisation. The base carries all
-  fields that are reusable for non-film media; a future `Game` type slots
-  in beside `Movie` without touching the importer or repository contracts.
-- `CollectionXmlReader` — parses real-world DP4 Collection.xml exports:
-  - Identity: `ID`, parsed UPC siblings (base / variant / locality / type),
-    formatted `UPC`
-  - Titles + `DistTrait` (edition label)
-  - Provenance: production year, release date, up to 3 `CountryOfOrigin*`
-  - Classification: genres, tags, full `RatingInfo` (system/value/age/
-    variant/details), `CaseType` + slip-cover, regions
-  - People: full actor and credit attribute set (middle name, birth year,
-    credited-as, voice/uncredited/puppeteer flags)
-  - Companies: `Studios`, `MediaCompanies`
-  - User-managed: `CollectionType` (Owned/Wishlist),
-    `CollectionNumber`, `CountAs`, `WishPriority`, `CustomFields`,
-    `Locks` (collapsed to enabled-only)
-  - Descriptions: overview, notes, multi-line `EasterEggs`
-  - Audio: `<Audio>/<AudioTrack>` with both prefixed (`AudioContent/...`)
-    and unprefixed (`Content/...`) child schemas, plus attribute style
-  - Subtitles
-  - Discs: full `<Discs>/<Disc>` with side-A/B descriptions, IDs, labels,
-    dual-layered/-sided flags, location, slot
-  - Video format: aspect ratio, video standard, `ColorFormat` collapsed
-    to one of Color/BlackAndWhite/Colorized/Mixed, `Dimensions` collapsed
-    to one of 2D/3DAnaglyph/3DBluRay, letterbox/16x9/dual-sided/-layered
-  - Features: 24 boolean flags stored as enabled-only name list,
-    plus `OtherFeatures` free text
-  - `MediaBanners` (front/back)
-  - `BoxSet`: `<Parent>` (child→parent link) and `<Contents>/<Content>`
-    (parent→children list)
-  - Purchase: full `PurchaseInfo` with `MonetaryAmount` price (currency
-    triple), place/type/website, gift-from
-  - `SRP` (suggested retail price, same `MonetaryAmount` shape)
-  - `LoanInfo` (loaned/due/user) + `Events` history with timestamps
-  - `Review` (own star ratings)
-  - Timestamps: `ProfileTimestamp`, `LastEdited`
-  - Cover resolution from `Images/` directory
-  - Binary `QIODevice` open so `QXmlStreamReader` honours the
-    `windows-1252` encoding declaration in real exports
-  - Robust against unknown elements (forward-compatible)
-- Modular `Importer` base class — `DvdProfilerXmlImporter` is the first
-  concrete implementation, additional source formats slot in as siblings
-  under `src/importers/` without touching the persistence layer
-- SQLite persistence (`xyz_db` lib):
-  - `Database` wrapper with WAL journal mode + foreign-key enforcement
-  - Versioned `Migrations` runner (schema_version table, idempotent)
-  - Schema v1: main `movies` table mirroring all flat `Movie` fields,
-    plus 16 child tables for collections (genres, actors, credits,
-    audio_tracks, discs, events, custom_fields, box_set_children, ...)
-  - FTS5 virtual table `movies_fts` over title, original_title, overview,
-    notes, easter_eggs, actors (joined names), credits, studios — ranked
-    via SQLite's bm25
-  - `MovieRepository` with `insert`, `bulkInsert` (transactional),
-    `count`, `getById`, `getAll`, `search(query, limit)`
-  - Cover paths stored relative to a configurable library root
-- 47 unit tests across two binaries (importer + repository), plus the
-  sample-data end-to-end test
-- ctest configured to inject Qt's `bin/` into PATH on Windows so test exes
-  don't hang waiting for a missing-DLL dialog
-- **QML UI** (Material Dark theme):
-  - `Main.qml` — `ApplicationWindow` shell with header (search bar + open
-    library + movie count) and footer (status bar). Starts maximized.
-  - `CoverGrid.qml` — `GridView` of 180×270 tiles. Lazy-loaded cover
-    images with placeholder fallback; LOANED and SET (box-set parent)
-    badges; click → selectMovie(id).
-  - `MovieDetail.qml` — flat right-side pane (460 wide) showing title /
-    year / format / rating / cast / crew / audio tracks / discs /
-    technical / purchase / loan / tags. All bindings come from
-    `LibraryController.selected*` properties for a flat render path.
-  - `MovieListModel` exposes role names (title, year, format, coverPath,
-    director, isLoaned, isBoxSetParent, …) for the grid delegate.
-  - `LibraryController` is an application-owned QML singleton registered
-    via `qmlRegisterSingletonInstance` (QML_SINGLETON's default-factory
-    behavior would have given QML its own fresh instance, bypassing the
-    one already wired to the DB).
-- **Dual-mode entry point**: `xyz-profiler.exe` launches the GUI by
-  default; passing a Collection.xml positional arg keeps the original CLI
-  flow for batch / scripted use.
+  lib) — `MediaItem` base + `Movie` specialisation
+- `DvdProfilerXmlImporter` — parses real-world DP4 Collection.xml exports
+  with full field coverage (audio, discs, box sets, ratings, loans, purchase,
+  features, video format, etc.). Binary `QIODevice` open honours the
+  `windows-1252` encoding declaration.
+- Modular `Importer` base class — additional source formats slot in as
+  siblings under `src/importers/`
+- SQLite persistence (`xyz_db` lib): WAL mode, foreign keys, versioned
+  migrations (v1: full schema + FTS5, v2: tmdb_id), `MovieRepository`
+  with CRUD + bulk + FTS5 search (bm25 ranking)
+- **Qt Widgets UI** (Fusion dark theme):
+  - `MainWindow` — `QMainWindow` with toolbar (import, view toggle,
+    search field, movie count, settings), `QSplitter` (views + detail),
+    `QStatusBar`
+  - `CoverGridWidget` — `QListView` in IconMode with custom
+    `QStyledItemDelegate` painting 180×270 tiles (cover image with
+    `QPixmapCache`, LOANED/SET badges, title+year footer)
+  - `QTableView` with `QSortFilterProxyModel` — sortable columns,
+    right-click header for column visibility, box-set parent rows bold,
+    child rows indented
+  - `MovieDetailWidget` — `QScrollArea` (460px) with all movie sections
+    (title, cover, TMDb, loan, overview, cast, crew, audio, discs,
+    technical, purchase, tags). Cover cached via `QPixmapCache`,
+    all sections as static QLabels (no dynamic widget creation)
+  - View toggle: Grid View ↔ List View via `QStackedWidget`
+  - `DarkFusionStyle` — Fusion + QPalette for Dark/Light/System themes
+- **Dual-mode entry point**: GUI by default, CLI with positional XML arg
 - **TMDb integration** (`xyz_tmdb` lib):
-  - `TmdbClient` — async wrapper around TMDb's v3 read API
-    (`search/movie`, `movie/{id}`, `configuration`); JSON parsed via
-    `QJsonDocument`, no SDK dependency
-  - Shared `QNetworkDiskCache` at `QStandardPaths::CacheLocation/network`
-    used by both `TmdbClient` and the QML image loader (via a
-    `QQmlNetworkAccessManagerFactory`) — poster thumbnails persist across
-    restarts
-  - Schema migration v2 adds `tmdb_id` to `movies` with an index
-  - `LibraryController` exposes `searchSelectedOnTmdb` / `pickTmdbMatch`
-    invokables and a `tmdbCandidates` model
-  - `TmdbMatchDialog.qml` shows poster + title + year + overview for
-    each hit; click → persisted to DB, indicator appears in detail pane
-  - API key from `TMDB_API_KEY` env var; missing key gracefully disables
-    the buttons rather than crashing (proper settings UI deferred to a
-    later phase)
-- **User settings** (`SettingsController` + `xyz-profiler.ini` under
-  `AppConfigLocation`): TMDb API key (overrides `TMDB_API_KEY` env var),
-  default cover-images directory, theme (Dark/Light/System — bound to
-  `Material.theme` so switches apply instantly without restart). Exposed
-  to QML as a singleton; editable via the toolbar Settings… dialog.
-- **Two-phase import wizard**: file pick → background parse (cancellable)
-  → `ImportPreviewDialog` showing count + first 8 titles + chosen images
-  dir → on confirm runs the per-row DB write with the existing progress
-  bar; cancel discards the parsed data without touching the DB.
-- **Internationalisation**: English + German via `qt_add_translations`;
-  system locale auto-detected, falls back to English
-- **Packaging**: Inno Setup script + GitHub Actions workflow that builds,
-  tests, ZIPs, and attaches signed installers to tagged releases
+  - `TmdbClient` — async v3 read API (search, movie, configuration)
+  - `QNetworkDiskCache` for poster thumbnails
+  - `TmdbMatchDialog` with poster thumbnails + TMDb attribution
+  - Poster download after match (w500, saved to `covers/` dir)
+  - Schema migration v2 adds `tmdb_id`
+- **User settings** (`SettingsController` + INI): TMDb key, images dir,
+  theme, view mode, table columns, sort state
+- **Two-phase import wizard**: file pick → background parse → preview
+  dialog → progress bar → done
+- **Box-set grouping**: children auto-sorted after parent, indented in
+  table view, SET badge in cover grid
+- **Internationalisation**: English + German via `qt_add_translations`
+- **Packaging**: Inno Setup script + GitHub Actions workflow
 
-**Validated against** the user's real 369-entry DP4 export — all movies
-persisted to a 10 MB SQLite file, FTS5 search returns expected hits for
-title queries ("matrix" → 7), actor queries ("adrien brody" → 2),
-and director surname queries ("wachowski" → 7). GUI shell visually
-verified against the same library.
+**Validated against** the user's real 369-entry DP4 export. 47 unit tests
+across two binaries (importer + repository).
 
 ## Roadmap
 
-Roughly in build order — each chunk should ship green tests.
-
-### 1. Reader hardening — DONE
-- [x] Parse `<Audio>` / `<AudioTrack>`, `<Subtitles>`, `<Discs>/<Disc>`
-- [x] Parse box-set parent/child relations
-- [x] Parse `<Tags>`, `<CustomFields>` (defensive — empty in real export)
-- [x] Validate against a real export — covered every element the user's
-      DP4 collection ships, including loan history, FSK ratings, 3D
-      releases, multi-disc box sets, and cp1252-encoded German content
-
-### 2. SQLite persistence (`src/db/`) — DONE
-- [x] Schema migrations (version table + idempotent migration runner)
-- [x] `MovieRepository` — insert / bulk / count / getById / getAll
-- [x] FTS5 virtual table over title/actors/credits/studios/overview/notes
-- [x] Cover paths stored as relative; resolved against a library root
-
-### 3. QML UI shell (`src/qml/`) — DONE
-- [x] Switch `main.cpp` to `QGuiApplication` + `QQmlApplicationEngine`
-- [x] `Main.qml` — ApplicationWindow, header search bar, footer status bar
-- [x] `CoverGrid.qml` — `GridView` with lazy-loaded cover thumbnails +
-      LOANED / SET badges
-- [x] `MovieDetail.qml` — full info pane (cast, crew, technical, notes,
-      purchase, loan, …)
-- [x] Material Dark theme — explicit theme toggle deferred to Phase 6 settings
-
-### 4. C++ ↔ QML glue — MOSTLY DONE (alongside Phase 3)
-- [x] `MovieListModel : QAbstractListModel` — backed by repository with
-      role names for QML
-- [x] `LibraryController : QObject` — `Q_INVOKABLE` actions for QML
-      (openLibrary, search, refresh, selectMovie, importDvdProfilerXml)
-- [ ] `MovieFilterProxyModel : QSortFilterProxyModel` — deferred; FTS5
-      search in the repository covers the v1 search case already
-
-### 5. TMDb integration (`src/tmdb/`) — DONE for matching; refresh deferred
-- [x] `TmdbClient` — async `search/movie`, `movie/{id}`, image config
-- [x] Disk image cache (`QStandardPaths::CacheLocation`) — shared by
-      TmdbClient and the QML `Image` loader via a
-      `QQmlNetworkAccessManagerFactory`
-- [x] Match dialog (QML) — auto-shows on candidates, posters via TMDb
-      thumbnails (w185), pick → persisted to DB
-- [x] Store `tmdb_id` on `Movie` (schema migration v2)
-- [ ] Refresh-from-TMDb action (overwrite local metadata with TMDb data) —
-      deferred to a later phase; needs UX for "which fields to overwrite"
-
-### 6. Settings & first-run — DONE
-- [x] `QSettings`-backed config: TMDb API key, images dir, theme.
-      Library DB path is intentionally NOT a setting — it's auto-managed
-      under `AppLocalDataLocation`.
-- [x] Import wizard: file pick → background parse → preview dialog
-      (count + sample titles) → confirm → progress dialog → done
-
 ### Post-MVP (explicitly out of scope for v1)
-- Loan tracking (who borrowed which disc)
+- Refresh-from-TMDb action (overwrite local metadata)
+- Loan tracking UI (data already imported)
 - Barcode scanning (EAN via webcam / phone companion)
 - Multi-user / sync
 
 ## Conventions
 
-### QML-first
+### Widgets-first
 
-The UI is **QML wherever possible**. Reasons:
+The UI uses **Qt Widgets** exclusively. Reasons:
 
-- Modern look-and-feel with minimal code; trivial dark mode / theming
-- `GridView` with lazy delegate instantiation handles 10k+ cover thumbnails
-  fluidly — would need significant `QStyledItemDelegate` work in Widgets
-- Touch / gesture friendly for future tablet builds
+- `QTableView` / `QHeaderView` / `QSortFilterProxyModel` provide sorting,
+  column visibility, and column reordering with zero custom code
+- `QStyledItemDelegate::paint()` is fast — no binding engine overhead
+- `QSplitter`, `QStackedWidget`, `QProgressDialog` just work
+- Fusion + QPalette gives clean dark/light theming via `DarkFusionStyle`
 
 **Concretely:**
 
-- `main()` uses `QGuiApplication` + `QQmlApplicationEngine` (not
-  `QApplication`). The smoke-test CLI in `src/main.cpp` is a temporary
-  scaffold and will be replaced.
-- Business logic lives in C++ (`QObject` subclasses, models). QML calls
-  into it via `Q_INVOKABLE`, properties, and signals — never the reverse.
-- Models exposed to QML are `QAbstractListModel` subclasses with named
-  roles, registered with `qmlRegisterType` or via context properties.
-- Custom delegates and components go under `src/qml/components/`.
-- Widgets are only acceptable for: (a) native file dialogs where
-  `QFileDialog` is materially better than `Qt.labs.platform`, and
-  (b) tray-icon integration. Justify in a comment when used.
+- `main()` uses `QApplication` + `MainWindow`
+- Business logic lives in controllers (`QObject` subclasses). The UI
+  connects to signals and calls public methods — no `Q_PROPERTY` fan-out,
+  no `Q_INVOKABLE` annotations needed.
+- Two models: `MovieListModel` (role-based, for the cover grid's
+  `QListView` in IconMode) and `MovieTableModel` (column-based, for
+  `QTableView`). Both backed by the same `QList<Movie>` data.
+- Controllers expose `const Movie&` directly — no QVariantMap conversion.
+- Dialogs are `QDialog` subclasses shown via `exec()`.
 
 ### Code
 
@@ -324,8 +204,7 @@ The UI is **QML wherever possible**. Reasons:
 
 - QtTest, one test binary per module under `tests/`.
 - Each binary registered with ctest via `add_test`.
-- Use `QTEST_GUILESS_MAIN` for non-UI tests, `QTEST_MAIN` for QML tests
-  (when we add them).
+- Use `QTEST_GUILESS_MAIN` for non-UI tests.
 - Test data files live under `tests/data/`, path injected via
   `TEST_DATA_DIR` compile definition.
 
@@ -339,4 +218,4 @@ The UI is **QML wherever possible**. Reasons:
 
 - DVD Profiler 4 XML schema (community-mirrored, no longer on invelos.com)
 - TMDb API docs: <https://developer.themoviedb.org/reference/intro/getting-started>
-- Qt6 QML best practices: <https://doc.qt.io/qt-6/qtquick-bestpractices.html>
+- Qt6 Widgets docs: <https://doc.qt.io/qt-6/qtwidgets-index.html>

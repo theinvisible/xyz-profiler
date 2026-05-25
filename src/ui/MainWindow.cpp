@@ -1,5 +1,7 @@
 #include "MainWindow.h"
 
+#include "ui/DarkFusionStyle.h"
+
 #include "controllers/LibraryController.h"
 #include "controllers/SettingsController.h"
 #include "models/MovieTableModel.h"
@@ -46,6 +48,8 @@ MainWindow::MainWindow(LibraryController* controller,
     buildStatusBar_();
     connectController_();
     connectSettings_();
+
+    setStyleSheet(DarkFusionStyle::darkStyleSheet());
 
     switchView_(m_settings->viewMode());
     onMoviesChanged_();
@@ -131,6 +135,9 @@ void MainWindow::buildCentralWidget_()
     m_tableView->horizontalHeader()->setStretchLastSection(true);
     m_tableView->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     m_tableView->setShowGrid(false);
+    m_tableView->setStyleSheet(QStringLiteral(
+        "QTableView { selection-background-color: #3a7bd5; selection-color: white; }"
+        "QTableView::item:selected { background-color: #3a7bd5; color: white; }"));
 
     connect(m_tableView->horizontalHeader(), &QWidget::customContextMenuRequested,
             this, [this](const QPoint& pos) {
@@ -239,6 +246,12 @@ void MainWindow::connectSettings_()
 {
     connect(m_settings, &SettingsController::viewModeChanged, this,
             [this]() { switchView_(m_settings->viewMode()); });
+    connect(m_settings, &SettingsController::themeNameChanged, this,
+            [this]() {
+        setStyleSheet(m_settings->themeName() == QLatin1String("Dark")
+                          ? DarkFusionStyle::darkStyleSheet()
+                          : QString());
+    });
 }
 
 // ---------------------------------------------------------------------------
