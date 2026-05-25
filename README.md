@@ -234,3 +234,19 @@ maintained. xyz-profiler reads the documented `Collection.xml` export
 format and replaces the online lookup with TMDb — so existing DP4 users
 can keep their catalogue on a current, maintained stack without
 re-cataloguing.
+
+## License
+
+xyz-profiler is licensed under the **GNU General Public License v3.0 or
+later** (`GPL-3.0-or-later`). See [`LICENSE`](LICENSE) for the full
+text. In short: you may use, modify, and redistribute this software, but
+derivative works must remain under GPL-3.0 and carry source.
+
+### TMDB attribution
+
+This product uses the TMDB API but is not endorsed, certified, or
+otherwise approved by TMDB. Data and images fetched from TMDB at runtime
+are **not** covered by this project's GPL-3.0 license — they remain
+subject to the [TMDB API Terms of Use](https://www.themoviedb.org/api-terms-of-use).
+Each user must obtain their own free API key from
+[themoviedb.org](https://www.themoviedb.org/settings/api).

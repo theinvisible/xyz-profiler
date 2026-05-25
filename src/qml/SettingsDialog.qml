@@ -70,6 +70,38 @@ Dialog {
                     text: qsTr("Show")
                 }
             }
+
+            // TMDb attribution — required by the TMDB API terms of use
+            // (section 3). The logo identifies the data source; the notice
+            // disclaims endorsement. Both must appear wherever the API is
+            // used, so the natural home is next to the API-key field.
+            RowLayout {
+                Layout.fillWidth: true
+                Layout.topMargin: 6
+                spacing: 10
+
+                Image {
+                    source: "qrc:/tmdb_logo.svg"
+                    sourceSize.height: 22
+                    fillMode: Image.PreserveAspectFit
+                    Layout.preferredHeight: 22
+                    Layout.alignment: Qt.AlignVCenter
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: Qt.openUrlExternally("https://www.themoviedb.org/")
+                    }
+                }
+                Label {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    text: qsTr("This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.")
+                    wrapMode: Text.WordWrap
+                    opacity: 0.7
+                    font.pixelSize: 11
+                }
+            }
         }
 
         // ---- Images directory -------------------------------------------

@@ -3,8 +3,14 @@ cmake_minimum_required(VERSION 3.21)
 project(xyz-profiler
     VERSION 0.3.0
     DESCRIPTION "DVD / Blu-ray collection manager (XYZ-Profiler)"
+    HOMEPAGE_URL "https://github.com/theinvisible/xyz-profiler"
     LANGUAGES CXX
 )
+
+# Project licensing — GPL-3.0-or-later. The full text lives in LICENSE at
+# the repo root. Note: TMDB data fetched at runtime is NOT covered by this
+# license; it remains under the TMDB API terms (see README).
+set(PROJECT_LICENSE "GPL-3.0-or-later")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

@@ -34,6 +34,10 @@ OutputBaseFilename=xyz-profiler-{#AppVersion}-windows-x64-setup
 OutputDir=.
 SetupIconFile={#AppIconFile}
 UninstallDisplayIcon={app}\{#AppExeName}
+; Show GPL-3.0 text as the installer license page. Path is relative to
+; this .iss file's location (packaging/windows/), so the repo-root
+; LICENSE is two dirs up.
+LicenseFile=..\..\LICENSE
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern

@@ -145,5 +145,36 @@ Dialog {
             text: qsTr("No matches found.")
             opacity: 0.7
         }
+
+        // TMDb attribution — required by the TMDB API terms of use
+        // (section 3). Goes at the foot of any view that actively
+        // presents TMDB-sourced data.
+        RowLayout {
+            Layout.fillWidth: true
+            Layout.topMargin: 4
+            spacing: 8
+
+            Image {
+                source: "qrc:/tmdb_logo.svg"
+                sourceSize.height: 18
+                fillMode: Image.PreserveAspectFit
+                Layout.preferredHeight: 18
+                Layout.alignment: Qt.AlignVCenter
+
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Qt.openUrlExternally("https://www.themoviedb.org/")
+                }
+            }
+            Label {
+                Layout.fillWidth: true
+                Layout.alignment: Qt.AlignVCenter
+                text: qsTr("This product uses TMDB and the TMDB APIs but is not endorsed, certified, or otherwise approved by TMDB.")
+                wrapMode: Text.WordWrap
+                opacity: 0.6
+                font.pixelSize: 10
+            }
+        }
     }
 }
