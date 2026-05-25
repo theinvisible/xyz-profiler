@@ -1,7 +1,4 @@
 # --- Domain layer ----------------------------------------------------------
-# Pure data structs, no I/O. Header-only so it stays usable from any
-# downstream module (importers, persistence, models, UI) without forcing a
-# specific build configuration. Reusable for future non-film media (games).
 add_library(xyz_domain INTERFACE)
 
 target_sources(xyz_domain INTERFACE
@@ -48,10 +45,6 @@ target_include_directories(xyz_importers
 )
 
 # --- TMDb client -----------------------------------------------------------
-# Async wrapper around TMDb's v3 read API. Depends only on Qt's network
-# stack and the canonical domain types — kept independent from
-# persistence so other importers/upstream metadata sources could be
-# added as siblings later.
 add_library(xyz_tmdb STATIC
     tmdb/TmdbClient.h
     tmdb/TmdbClient.cpp
@@ -80,51 +73,41 @@ target_include_directories(xyz_db
     PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# --- Application + QML module --------------------------------------------
-# Executable first; the QML module then attaches to it. The QML URI
-# `xyz.profiler` is what view files use (`import xyz.profiler`). C++ types
-# (MovieListModel, LibraryController) are annotated with
-# QML_ELEMENT / QML_SINGLETON and picked up by qt_add_qml_module().
+# --- Application (Qt Widgets) ---------------------------------------------
 qt_add_executable(xyz-profiler
     main.cpp
+    models/MovieListModel.h
+    models/MovieListModel.cpp
+    models/MovieSortProxyModel.h
+    models/MovieSortProxyModel.cpp
+    models/MovieTableModel.h
+    models/MovieTableModel.cpp
+    controllers/LibraryController.h
+    controllers/LibraryController.cpp
+    controllers/SettingsController.h
+    controllers/SettingsController.cpp
+    ui/DarkFusionStyle.h
+    ui/DarkFusionStyle.cpp
+    ui/MainWindow.h
+    ui/MainWindow.cpp
+    ui/CoverGridWidget.h
+    ui/CoverGridWidget.cpp
+    ui/MovieDetailWidget.h
+    ui/MovieDetailWidget.cpp
+    ui/TmdbMatchDialog.h
+    ui/TmdbMatchDialog.cpp
+    ui/ImportPreviewDialog.h
+    ui/ImportPreviewDialog.cpp
+    ui/SettingsDialog.h
+    ui/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/resources/app.qrc
     $<$<PLATFORM_ID:Windows>:${CMAKE_SOURCE_DIR}/resources/app.rc>
 )
 
-qt_add_qml_module(xyz-profiler
-    URI xyz.profiler
-    VERSION 1.0
-    SOURCES
-        models/MovieListModel.h
-        models/MovieListModel.cpp
-        controllers/LibraryController.h
-        controllers/LibraryController.cpp
-        controllers/SettingsController.h
-        controllers/SettingsController.cpp
-    QML_FILES
-        qml/Main.qml
-        qml/CoverGrid.qml
-        qml/MovieDetail.qml
-        qml/TmdbMatchDialog.qml
-        qml/SettingsDialog.qml
-        qml/ImportPreviewDialog.qml
-    # Qt's QML engine auto-searches `:/qt/qml/` on the resource system;
-    # putting the module there lets `loadFromModule("xyz.profiler", "Main")`
-    # work without an extra `engine.addImportPath()` call in main.
-    RESOURCE_PREFIX /qt/qml
-)
-
-# Expose project version to C++ so the about dialog / window title can
-# show it, and so the GitHub workflow can extract it from CMakeLists.txt
-# via regex.
 target_compile_definitions(xyz-profiler PRIVATE
     APP_VERSION_STRING="${PROJECT_VERSION}"
 )
 
-# ---- Translations --------------------------------------------------------
-# .ts → .qm at build time, embedded under :/i18n. main.cpp picks the best
-# match for QLocale::system() and silently falls back to the source
-# language (English) when no .qm matches.
 set(TS_FILES
     ${CMAKE_SOURCE_DIR}/translations/xyz-profiler_de.ts
 )
@@ -143,34 +126,22 @@ target_link_libraries(xyz-profiler
         Qt6::Concurrent
         Qt6::Gui
         Qt6::Network
-        Qt6::Qml
-        Qt6::Quick
-        Qt6::QuickControls2
+        Qt6::Widgets
         Qt6::Sql
+        Qt6::Svg
 )
 
 target_include_directories(xyz-profiler
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
-        # qt_add_qml_module's generated type-registrations file uses
-        # `<HeaderName.h>` (bare filename) and relies on these dirs being
-        # on the include path.
-        ${CMAKE_CURRENT_SOURCE_DIR}/controllers
-        ${CMAKE_CURRENT_SOURCE_DIR}/models
+        ${CMAKE_CURRENT_SOURCE_DIR}/ui
 )
 
-# --- Deploy Qt runtime DLLs next to the executable on Windows -------------
-# Without this, launching the exe from anywhere other than a shell that
-# has Qt's bin/ on PATH fails with STATUS_DLL_NOT_FOUND (0xC0000135).
-# `windeployqt` copies the needed Qt6 DLLs, QML modules, and platform
-# plugins into the output directory; it's a no-op on subsequent builds
-# when nothing relevant changed.
 if(WIN32)
     find_program(WINDEPLOYQT_EXE windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")
     if(WINDEPLOYQT_EXE)
         add_custom_command(TARGET xyz-profiler POST_BUILD
             COMMAND "${WINDEPLOYQT_EXE}"
-                    --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/qml"
                     --no-translations
                     --no-system-d3d-compiler
                     --no-opengl-sw
@@ -180,7 +151,6 @@ if(WIN32)
         )
     else()
         message(WARNING
-            "windeployqt not found — xyz-profiler.exe will need Qt's bin/ "
-            "on PATH at launch time. Expected under \${CMAKE_PREFIX_PATH}/bin.")
+            "windeployqt not found — xyz-profiler.exe will need Qt's bin/ on PATH.")
     endif()
 endif()

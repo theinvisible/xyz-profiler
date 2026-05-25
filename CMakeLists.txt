@@ -7,9 +7,6 @@ project(xyz-profiler
     LANGUAGES CXX
 )
 
-# Project licensing — GPL-3.0-or-later. The full text lives in LICENSE at
-# the repo root. Note: TMDB data fetched at runtime is NOT covered by this
-# license; it remains under the TMDB API terms (see README).
 set(PROJECT_LICENSE "GPL-3.0-or-later")
 
 set(CMAKE_CXX_STANDARD 20)
@@ -20,14 +17,9 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
-# Try the standard find_package first — covers CI (install-qt-action sets
-# Qt6_DIR / CMAKE_PREFIX_PATH) and any explicit user-supplied prefix.
 find_package(Qt6 6.5 QUIET COMPONENTS
-    Core Concurrent Gui Network Qml Quick QuickControls2 Sql Test LinguistTools)
+    Core Concurrent Gui Network Widgets Sql Svg Test LinguistTools)
 
-# Local-dev fallback: scan known Qt roots (Desktop: H:/Qt, Notebook: C:/Qt)
-# for the newest 6.x MSVC/MinGW kit. Keeps onboarding zero-friction: drop
-# a Qt install anywhere under H:/Qt and CMake finds it.
 if(NOT Qt6_FOUND)
     set(_qt_search_roots "H:/Qt" "C:/Qt")
     set(_qt_found_dir "")
@@ -57,7 +49,7 @@ if(NOT Qt6_FOUND)
         set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" CACHE STRING "" FORCE)
         message(STATUS "Auto-detected Qt6 at ${_qt_found_dir}")
         find_package(Qt6 6.5 REQUIRED COMPONENTS
-            Core Concurrent Gui Network Qml Quick QuickControls2 Sql Test LinguistTools)
+            Core Concurrent Gui Network Widgets Sql Svg Test LinguistTools)
     else()
         message(FATAL_ERROR
             "Qt6 not found — set Qt6_DIR / CMAKE_PREFIX_PATH or drop a Qt "

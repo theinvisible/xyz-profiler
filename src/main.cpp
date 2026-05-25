@@ -5,28 +5,26 @@
 #include "db/MovieRepository.h"
 #include "importers/dvdprofiler/DvdProfilerXmlImporter.h"
 #include "tmdb/TmdbClient.h"
+#include "ui/DarkFusionStyle.h"
+#include "ui/MainWindow.h"
 
+#include <QApplication>
 #include <QCommandLineParser>
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QGuiApplication>
 #include <QIcon>
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
-#include <QQmlApplicationEngine>
-#include <QQmlNetworkAccessManagerFactory>
-#include <QQuickStyle>
 #include <QStandardPaths>
 #include <QTranslator>
 
 namespace {
 
 // ---------------------------------------------------------------------------
-// CLI mode: file → DB → optional FTS5 search dump.
-// Kept for batch / scripted use; the GUI is the default surface.
+// CLI mode
 // ---------------------------------------------------------------------------
 void dumpDetail(const xyz::Movie& m)
 {
@@ -103,10 +101,6 @@ int runCli(const QStringList& args, QCommandLineParser& parser,
     return 0;
 }
 
-// Default library file lives under the per-user AppData directory:
-// e.g. C:\Users\<name>\AppData\Local\xyz-profiler\library.db on Windows,
-// ~/.local/share/xyz-profiler/library.db on Linux. The directory is
-// created on first run.
 QString defaultLibraryPath()
 {
     const QString dir = QStandardPaths::writableLocation(
@@ -115,7 +109,6 @@ QString defaultLibraryPath()
     return dir + QStringLiteral("/library.db");
 }
 
-// Per-user cache for network responses (TMDb JSON + poster JPEGs).
 QString networkCachePath()
 {
     const QString dir = QStandardPaths::writableLocation(
@@ -124,69 +117,38 @@ QString networkCachePath()
     return dir;
 }
 
-// Factory the QML engine uses to create a QNetworkAccessManager for
-// `Image { source: "https://..." }` and other URL-based loaders. Each
-// instance gets its own QNetworkDiskCache rooted at the same on-disk
-// directory; QNetworkDiskCache is thread-safe across processes/threads
-// sharing a directory.
-class CachedNamFactory : public QQmlNetworkAccessManagerFactory {
-public:
-    explicit CachedNamFactory(QString cacheDir, qint64 maxBytes = 256LL * 1024 * 1024)
-        : m_cacheDir(std::move(cacheDir)), m_maxBytes(maxBytes) {}
-
-    QNetworkAccessManager* create(QObject* parent) override
-    {
-        auto* nam   = new QNetworkAccessManager(parent);
-        auto* cache = new QNetworkDiskCache(nam);
-        cache->setCacheDirectory(m_cacheDir);
-        cache->setMaximumCacheSize(m_maxBytes);
-        nam->setCache(cache);
-        return nam;
-    }
-
-private:
-    QString m_cacheDir;
-    qint64  m_maxBytes;
-};
-
 // ---------------------------------------------------------------------------
-// GUI mode: Material-styled QQuickWindow driven by LibraryController.
+// GUI mode
 // ---------------------------------------------------------------------------
 int runGui(int argc, char* argv[],
-           const QString& libraryOverride,
-           const QString& libraryRootOverride)
+           const QString& libraryOverride)
 {
-    QGuiApplication app(argc, argv);
+    QApplication app(argc, argv);
     QCoreApplication::setApplicationName(QStringLiteral("xyz-profiler"));
     QCoreApplication::setApplicationVersion(QStringLiteral(APP_VERSION_STRING));
     QCoreApplication::setOrganizationName(QStringLiteral("xyz-profiler"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/app.ico")));
 
-    QGuiApplication::setWindowIcon(QIcon(QStringLiteral(":/app.ico")));
-
-    // Pick the best-matching app translation for the system locale; if none
-    // matches we silently fall back to the source language (English).
+    // Translations
     static QTranslator appTranslator;
     if (appTranslator.load(QLocale(), QStringLiteral("xyz-profiler"),
-                           QStringLiteral("_"), QStringLiteral(":/i18n"))) {
-        QGuiApplication::installTranslator(&appTranslator);
-    }
-    // Standard Qt dialog strings ("OK"/"Cancel"/…) — load from Qt's
-    // shipped translations dir if a matching .qm is there.
+                           QStringLiteral("_"), QStringLiteral(":/i18n")))
+        QApplication::installTranslator(&appTranslator);
+
     static QTranslator qtTranslator;
     const QString qtTrDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
     if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"),
-                          QStringLiteral("_"), qtTrDir)) {
-        QGuiApplication::installTranslator(&qtTranslator);
-    }
+                          QStringLiteral("_"), qtTrDir))
+        QApplication::installTranslator(&qtTranslator);
 
-    QQuickStyle::setStyle(QStringLiteral("Material"));
+    // Settings + Theme
+    xyz::SettingsController settings;
+    xyz::DarkFusionStyle::applyTheme(settings.themeName());
+    QObject::connect(&settings, &xyz::SettingsController::themeNameChanged,
+                     &app, [&]() { xyz::DarkFusionStyle::applyTheme(settings.themeName()); });
 
-    // Shared on-disk cache for TMDb JSON + poster JPEGs. Reusing one
-    // directory across the API client and the QML image loader lets
-    // posters survive restarts and avoids re-downloading them in the
-    // grid + detail view.
+    // Network cache for TMDb
     const QString cacheDir = networkCachePath();
-
     auto* appNam = new QNetworkAccessManager(&app);
     {
         auto* cache = new QNetworkDiskCache(appNam);
@@ -195,54 +157,30 @@ int runGui(int argc, char* argv[],
         appNam->setCache(cache);
     }
 
-    // User settings — persisted to AppConfig/xyz-profiler.ini.
-    xyz::SettingsController settings;
-
-    // TMDb client — key precedence is settings.tmdbApiKey > TMDB_API_KEY env.
+    // TMDb client
     xyz::TmdbClient tmdbClient(xyz::SettingsController::resolveTmdbApiKey(settings),
                                appNam);
-    if (tmdbClient.hasApiKey()) {
-        tmdbClient.fetchConfiguration();   // background warm-up
-    } else {
-        qInfo().noquote()
-            << "TMDB_API_KEY not configured — TMDb actions will be disabled.";
-    }
-    // React to runtime key changes from the Settings dialog.
+    if (tmdbClient.hasApiKey())
+        tmdbClient.fetchConfiguration();
+
     QObject::connect(&settings, &xyz::SettingsController::tmdbApiKeyChanged,
                      &tmdbClient, [&]() {
         tmdbClient.setApiKey(xyz::SettingsController::resolveTmdbApiKey(settings));
         if (tmdbClient.hasApiKey()) tmdbClient.fetchConfiguration();
     });
 
+    // Controller
     xyz::LibraryController controller;
     controller.setTmdbClient(&tmdbClient);
-    Q_UNUSED(libraryRootOverride);
 
-    // Always open a library on startup — the default lives in AppData and
-    // is created on first use. `--db PATH` overrides it for power users.
     const QString libPath = libraryOverride.isEmpty()
                                 ? defaultLibraryPath()
                                 : libraryOverride;
     controller.openLibrary(libPath);
 
-    // Expose controllers as QML singletons backed by the application-
-    // owned instances. Must run before loadFromModule so QML's first
-    // binding evaluation sees them already in place.
-    qmlRegisterSingletonInstance("xyz.profiler", 1, 0, "LibraryController",
-                                 &controller);
-    qmlRegisterSingletonInstance("xyz.profiler", 1, 0, "SettingsController",
-                                 &settings);
-
-    QQmlApplicationEngine engine;
-    // QML engine instantiates a NAM per worker thread; route them all
-    // through our cache directory so Image downloads (e.g. TMDb poster
-    // thumbnails) persist across runs.
-    engine.setNetworkAccessManagerFactory(new CachedNamFactory(cacheDir));
-
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed,
-                     &app, []() { QCoreApplication::exit(-1); },
-                     Qt::QueuedConnection);
-    engine.loadFromModule(QStringLiteral("xyz.profiler"), QStringLiteral("Main"));
+    // Main window
+    xyz::MainWindow window(&controller, &settings, &tmdbClient);
+    window.show();
 
     return app.exec();
 }
@@ -251,12 +189,7 @@ int runGui(int argc, char* argv[],
 
 int main(int argc, char* argv[])
 {
-    // First-pass parse with a temporary QCoreApplication so we can decide
-    // GUI vs CLI before instantiating the heavier QGuiApplication. The
-    // QCoreApplication is scoped to this block.
-    QString xmlInput, dbInput, libraryRootInput, imagesInput,
-            detailInput, searchInput;
-    bool wantGui = true;
+    QString xmlInput, dbInput, libraryRootInput;
 
     {
         QCoreApplication probe(argc, argv);
@@ -281,7 +214,7 @@ int main(int argc, char* argv[])
             QStringLiteral("id"));
         QCommandLineOption dbOpt(
             QStringList{QStringLiteral("b"), QStringLiteral("db")},
-            QStringLiteral("SQLite library file. GUI opens it; CLI imports into it."),
+            QStringLiteral("SQLite library file."),
             QStringLiteral("path"));
         QCommandLineOption libraryRootOpt(
             QStringList{QStringLiteral("r"), QStringLiteral("library-root")},
@@ -303,19 +236,12 @@ int main(int argc, char* argv[])
         xmlInput         = args.isEmpty() ? QString() : args.first();
         dbInput          = parser.value(dbOpt);
         libraryRootInput = parser.value(libraryRootOpt);
-        imagesInput      = parser.value(imagesOpt);
-        detailInput      = parser.value(detailOpt);
-        searchInput      = parser.value(searchOpt);
 
-        // CLI mode is triggered by a positional xml arg. Without one, we
-        // launch the GUI (which can take an optional --db to pre-open).
-        wantGui = xmlInput.isEmpty();
-
-        if (!wantGui) {
+        if (!xmlInput.isEmpty()) {
             return runCli(args, parser, imagesOpt, detailOpt, dbOpt,
                           libraryRootOpt, searchOpt);
         }
     }
 
-    return runGui(argc, argv, dbInput, libraryRootInput);
+    return runGui(argc, argv, dbInput);
 }

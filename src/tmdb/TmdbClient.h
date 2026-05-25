@@ -35,6 +35,8 @@ public:
     QString apiKey() const { return m_apiKey; }
     bool    hasApiKey() const { return !m_apiKey.isEmpty(); }
 
+    QNetworkAccessManager* network() const { return m_network; }
+
     // Cached image configuration — empty until the first successful
     // fetchConfiguration() call. Compose URLs with
     // `imageUrl(posterPath, size)`.

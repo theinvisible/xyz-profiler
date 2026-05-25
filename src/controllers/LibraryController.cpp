@@ -5,80 +5,32 @@
 #include "db/MovieRepository.h"
 #include "importers/dvdprofiler/DvdProfilerXmlImporter.h"
 #include "models/MovieListModel.h"
+#include "models/MovieSortProxyModel.h"
+#include "models/MovieTableModel.h"
 #include "tmdb/TmdbClient.h"
 
+#include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
 #include <QPromise>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QUrl>
-#include <QVariantMap>
 #include <QtConcurrent>
 
 namespace xyz {
-namespace {
-
-QVariantMap personToMap(const Person& p)
-{
-    QVariantMap m;
-    QStringList nameParts;
-    if (!p.firstName.isEmpty())  nameParts << p.firstName;
-    if (!p.middleName.isEmpty()) nameParts << p.middleName;
-    if (!p.lastName.isEmpty())   nameParts << p.lastName;
-    m.insert(QStringLiteral("name"),       nameParts.join(QChar(u' ')));
-    m.insert(QStringLiteral("firstName"),  p.firstName);
-    m.insert(QStringLiteral("lastName"),   p.lastName);
-    m.insert(QStringLiteral("role"),       p.role);
-    m.insert(QStringLiteral("creditType"), p.creditType);
-    m.insert(QStringLiteral("creditedAs"), p.creditedAs);
-    m.insert(QStringLiteral("birthYear"),  p.birthYear);
-    m.insert(QStringLiteral("voice"),      p.voice);
-    m.insert(QStringLiteral("uncredited"), p.uncredited);
-    m.insert(QStringLiteral("puppeteer"),  p.puppeteer);
-    return m;
-}
-
-QVariantMap audioTrackToMap(const AudioTrack& a)
-{
-    return {
-        {QStringLiteral("content"),  a.content},
-        {QStringLiteral("format"),   a.format},
-        {QStringLiteral("channels"), a.channels},
-    };
-}
-
-QVariantMap discToMap(const Disc& d)
-{
-    return {
-        {QStringLiteral("descriptionSideA"), d.descriptionSideA},
-        {QStringLiteral("descriptionSideB"), d.descriptionSideB},
-        {QStringLiteral("discIdSideA"),      d.discIdSideA},
-        {QStringLiteral("discIdSideB"),      d.discIdSideB},
-        {QStringLiteral("labelSideA"),       d.labelSideA},
-        {QStringLiteral("labelSideB"),       d.labelSideB},
-        {QStringLiteral("dualLayeredSideA"), d.dualLayeredSideA},
-        {QStringLiteral("dualLayeredSideB"), d.dualLayeredSideB},
-        {QStringLiteral("dualSided"),        d.dualSided},
-        {QStringLiteral("location"),         d.location},
-        {QStringLiteral("slot"),             d.slot},
-    };
-}
-
-QString toFileUrl(const QString& path)
-{
-    if (path.isEmpty()) return {};
-    return QUrl::fromLocalFile(path).toString();
-}
-
-} // namespace
 
 LibraryController::LibraryController(QObject* parent)
     : QObject(parent),
-      m_movies(std::make_unique<MovieListModel>())
+      m_listModel(std::make_unique<MovieListModel>()),
+      m_tableModel(std::make_unique<MovieTableModel>()),
+      m_sortProxy(std::make_unique<MovieSortProxyModel>())
 {
-    // QFutureWatcher emits these on the thread that owns the watcher —
-    // i.e. this object's thread, which is the UI/main thread. So forwarding
-    // them straight to Q_PROPERTY notify signals is safe.
+    m_sortProxy->setSourceModel(m_listModel.get());
+
     connect(&m_importWatcher, &QFutureWatcher<ImportOutcome>::progressValueChanged,
             this, &LibraryController::onImportProgressChanged_);
     connect(&m_importWatcher, &QFutureWatcher<ImportOutcome>::progressRangeChanged,
@@ -92,22 +44,6 @@ LibraryController::LibraryController(QObject* parent)
             this, &LibraryController::onParseFinished_);
 }
 
-QStringList LibraryController::previewSampleTitles() const
-{
-    QStringList out;
-    const int take = std::min<int>(8, int(m_previewMovies.size()));
-    out.reserve(take);
-    for (int i = 0; i < take; ++i) {
-        const auto& m = m_previewMovies[i];
-        if (m.productionYear > 0) {
-            out << QStringLiteral("%1  (%2)").arg(m.title).arg(m.productionYear);
-        } else {
-            out << m.title;
-        }
-    }
-    return out;
-}
-
 LibraryController::~LibraryController() = default;
 
 bool LibraryController::libraryOpen() const
@@ -117,7 +53,7 @@ bool LibraryController::libraryOpen() const
 
 int LibraryController::movieCount() const
 {
-    return m_movies ? m_movies->rowCount() : 0;
+    return m_listModel ? m_listModel->rowCount() : 0;
 }
 
 void LibraryController::setStatus_(const QString& message)
@@ -127,13 +63,22 @@ void LibraryController::setStatus_(const QString& message)
     emit statusMessageChanged();
 }
 
+void LibraryController::setMoviesOnBothModels_(QList<Movie> movies)
+{
+    auto grouped = groupByBoxSet_(std::move(movies));
+    m_listModel->setMovies(grouped);
+    m_tableModel->setMovies(std::move(grouped));
+}
+
+// ---------------------------------------------------------------------------
+// Library
+// ---------------------------------------------------------------------------
+
 bool LibraryController::openLibrary(const QString& path)
 {
-    const QString local = urlToLocalPath(path);
-
-    auto db   = std::make_unique<Database>();
-    if (!db->open(local)) {
-        setStatus_(tr("Failed to open %1: %2").arg(local, db->errorString()));
+    auto db = std::make_unique<Database>();
+    if (!db->open(path)) {
+        setStatus_(tr("Failed to open %1: %2").arg(path, db->errorString()));
         return false;
     }
     QString err;
@@ -142,13 +87,12 @@ bool LibraryController::openLibrary(const QString& path)
         return false;
     }
     auto repo = std::make_unique<MovieRepository>(*db);
-
-    m_libraryRoot = QFileInfo(local).absolutePath();
+    m_libraryRoot = QFileInfo(path).absolutePath();
     repo->setLibraryRoot(m_libraryRoot);
 
     m_db          = std::move(db);
     m_repo        = std::move(repo);
-    m_libraryPath = local;
+    m_libraryPath = path;
 
     emit libraryChanged();
     refresh();
@@ -156,25 +100,34 @@ bool LibraryController::openLibrary(const QString& path)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Import
+// ---------------------------------------------------------------------------
+
+QStringList LibraryController::previewSampleTitles() const
+{
+    QStringList out;
+    const int take = std::min<int>(8, int(m_previewMovies.size()));
+    out.reserve(take);
+    for (int i = 0; i < take; ++i) {
+        const auto& m = m_previewMovies[i];
+        if (m.productionYear > 0)
+            out << QStringLiteral("%1  (%2)").arg(m.title).arg(m.productionYear);
+        else
+            out << m.title;
+    }
+    return out;
+}
+
 bool LibraryController::beginImport(const QString& xmlPath, const QString& imagesDir)
 {
-    if (m_importInProgress) {
-        setStatus_(tr("Import already running"));
-        return false;
-    }
-    if (!m_repo) {
-        setStatus_(tr("No library open"));
-        return false;
-    }
+    if (m_importInProgress) { setStatus_(tr("Import already running")); return false; }
+    if (!m_repo)            { setStatus_(tr("No library open"));        return false; }
 
-    const QString localXml    = urlToLocalPath(xmlPath);
-    const QString localImages = urlToLocalPath(imagesDir);
-
-    // Reset any leftover preview from a cancelled prior attempt.
     m_previewActive = false;
     m_previewMovies.clear();
-    m_previewSourceName = QFileInfo(localXml).fileName();
-    m_previewImagesDir  = localImages;
+    m_previewSourceName = QFileInfo(xmlPath).fileName();
+    m_previewImagesDir  = imagesDir;
     m_importInProgress  = true;
     m_importStage       = tr("Reading Collection.xml…");
     m_importCurrent     = 0;
@@ -182,15 +135,11 @@ bool LibraryController::beginImport(const QString& xmlPath, const QString& image
     emit importStateChanged();
     setStatus_(tr("Reading %1…").arg(m_previewSourceName));
 
-    // Parse runs on a worker thread; we don't touch the DB yet.
-    auto task = [localXml, localImages]() -> ParseOutcome {
+    auto task = [xmlPath, imagesDir]() -> ParseOutcome {
         ParseOutcome out;
-        DvdProfilerXmlImporter importer(localImages);
-        auto res = importer.importFile(localXml);
-        if (!res.ok) {
-            out.errorString = res.errorString;
-            return out;
-        }
+        DvdProfilerXmlImporter importer(imagesDir);
+        auto res = importer.importFile(xmlPath);
+        if (!res.ok) { out.errorString = res.errorString; return out; }
         out.movies = std::move(res.movies);
         return out;
     };
@@ -212,7 +161,6 @@ void LibraryController::onParseFinished_()
         emit importFinished(0, outcome.errorString);
         return;
     }
-
     m_previewMovies = outcome.movies;
     m_previewActive = true;
     emit importStateChanged();
@@ -227,8 +175,7 @@ bool LibraryController::commitImport()
     QList<Movie> movies = std::move(m_previewMovies);
     m_previewMovies.clear();
     m_previewActive = false;
-    // Status fields are reset by runWriter_.
-    runWriter_(std::move(movies), /*autoCommit=*/false);
+    runWriter_(std::move(movies), false);
     return true;
 }
 
@@ -247,26 +194,20 @@ void LibraryController::cancelImport()
 bool LibraryController::importDvdProfilerXml(const QString& xmlPath,
                                              const QString& imagesDir)
 {
-    if (m_importInProgress) {
-        setStatus_(tr("Import already running"));
-        return false;
-    }
+    if (m_importInProgress) { setStatus_(tr("Import already running")); return false; }
     if (!m_repo) {
         setStatus_(tr("No library open"));
         emit importFinished(0, m_statusMessage);
         return false;
     }
-
-    const QString localXml    = urlToLocalPath(xmlPath);
-    const QString localImages = urlToLocalPath(imagesDir);
-    DvdProfilerXmlImporter importer(localImages);
-    auto res = importer.importFile(localXml);
+    DvdProfilerXmlImporter importer(imagesDir);
+    auto res = importer.importFile(xmlPath);
     if (!res.ok) {
         setStatus_(tr("Import failed: %1").arg(res.errorString));
         emit importFinished(0, res.errorString);
         return false;
     }
-    runWriter_(std::move(res.movies), /*autoCommit=*/true);
+    runWriter_(std::move(res.movies), true);
     return true;
 }
 
@@ -275,15 +216,10 @@ void LibraryController::runWriter_(QList<Movie> movies, bool /*autoCommit*/)
     const QString dbPath      = m_libraryPath;
     const QString libraryRoot = m_libraryRoot;
 
-    // Capture by value — the worker runs on a different thread.
     auto task = [movies = std::move(movies), dbPath, libraryRoot]
                 (QPromise<ImportOutcome>& promise) mutable
     {
         ImportOutcome out;
-
-        // Open a worker-thread DB connection. SQLite's Qt driver is
-        // one-connection-per-thread; do NOT touch the main thread's
-        // Database/Repository here.
         Database db;
         if (!db.open(dbPath)) {
             out.errorString = QObject::tr("DB open failed: %1").arg(db.errorString());
@@ -325,7 +261,6 @@ void LibraryController::runWriter_(QList<Movie> movies, bool /*autoCommit*/)
             promise.addResult(out);
             return;
         }
-
         out.imported = total;
         promise.addResult(out);
     };
@@ -335,7 +270,6 @@ void LibraryController::runWriter_(QList<Movie> movies, bool /*autoCommit*/)
     m_importCurrent    = 0;
     m_importTotal      = 0;
     emit importStateChanged();
-
     m_importWatcher.setFuture(QtConcurrent::run(task));
 }
 
@@ -369,53 +303,45 @@ void LibraryController::onImportFinished_()
         emit importFinished(0, outcome.errorString);
         return;
     }
-
     setStatus_(tr("Imported %1 movies").arg(outcome.imported));
     refresh();
     emit importFinished(outcome.imported, {});
 }
 
+// ---------------------------------------------------------------------------
+// Refresh / Search / Selection
+// ---------------------------------------------------------------------------
+
 void LibraryController::refresh()
 {
     if (!m_repo) return;
-    m_movies->setMovies(m_repo->getAll());
+    setMoviesOnBothModels_(m_repo->getAll());
     emit moviesChanged();
 
-    // Re-resolve current selection (if still present) so the detail
-    // view picks up edits / re-imports. If nothing is selected yet,
-    // auto-pick the first row so the detail pane has something to show.
-    if (!m_selectedId.isEmpty()) {
+    if (!m_selectedId.isEmpty())
         selectMovie(m_selectedId);
-    } else if (!m_movies->movies().isEmpty()) {
-        selectMovie(m_movies->movies().first().id);
-    }
+    else if (!m_listModel->movies().isEmpty())
+        selectMovie(m_listModel->movies().first().id);
 }
 
 void LibraryController::search(const QString& query)
 {
     if (!m_repo) return;
-    if (query.trimmed().isEmpty()) {
-        refresh();
-        return;
-    }
-    m_movies->setMovies(m_repo->search(query));
+    if (query.trimmed().isEmpty()) { refresh(); return; }
+    setMoviesOnBothModels_(m_repo->search(query));
     emit moviesChanged();
     setStatus_(tr("Search '%1': %2 hits").arg(query).arg(movieCount()));
 }
 
 void LibraryController::selectMovie(const QString& id)
 {
-    if (!m_movies) return;
     if (id.isEmpty()) { clearSelection(); return; }
-
-    if (const auto* m = m_movies->find(id)) {
+    if (const auto* m = m_listModel->find(id)) {
         m_selected   = *m;
         m_selectedId = id;
         emit selectionChanged();
         return;
     }
-    // Fall back to a DB read — useful for direct-detail links that aren't
-    // in the current filtered model.
     if (m_repo) {
         if (auto opt = m_repo->getById(id); opt.has_value()) {
             m_selected   = *opt;
@@ -435,93 +361,6 @@ void LibraryController::clearSelection()
     emit selectionChanged();
 }
 
-QString LibraryController::urlToLocalPath(const QString& url)
-{
-    if (url.startsWith(QLatin1String("file:"))) return QUrl(url).toLocalFile();
-    return url;
-}
-
-QString LibraryController::selectedReleaseDate() const
-{
-    return m_selected.releaseDate.isValid()
-               ? m_selected.releaseDate.toString(Qt::ISODate)
-               : QString();
-}
-
-QString LibraryController::selectedCoverFrontUrl() const
-{
-    return toFileUrl(m_selected.coverFrontPath);
-}
-
-QString LibraryController::selectedCoverBackUrl() const
-{
-    return toFileUrl(m_selected.coverBackPath);
-}
-
-QVariantList LibraryController::selectedActors() const
-{
-    QVariantList out;
-    out.reserve(m_selected.actors.size());
-    for (const auto& p : m_selected.actors) out << personToMap(p);
-    return out;
-}
-
-QVariantList LibraryController::selectedCredits() const
-{
-    QVariantList out;
-    out.reserve(m_selected.credits.size());
-    for (const auto& p : m_selected.credits) out << personToMap(p);
-    return out;
-}
-
-QVariantList LibraryController::selectedAudioTracks() const
-{
-    QVariantList out;
-    out.reserve(m_selected.audioTracks.size());
-    for (const auto& a : m_selected.audioTracks) out << audioTrackToMap(a);
-    return out;
-}
-
-QVariantList LibraryController::selectedDiscs() const
-{
-    QVariantList out;
-    out.reserve(m_selected.discs.size());
-    for (const auto& d : m_selected.discs) out << discToMap(d);
-    return out;
-}
-
-QString LibraryController::selectedPurchaseDate() const
-{
-    return m_selected.purchase.date.isValid()
-               ? m_selected.purchase.date.toString(Qt::ISODate)
-               : QString();
-}
-
-QString LibraryController::selectedPurchasePrice() const
-{
-    const auto& p = m_selected.purchase.price;
-    if (p.value.isEmpty() || p.value == QLatin1String("0")) return {};
-    if (!p.formattedValue.isEmpty()) return p.formattedValue;
-    return p.denominationType.isEmpty()
-               ? p.value
-               : QStringLiteral("%1 %2").arg(p.value, p.denominationType);
-}
-
-QString LibraryController::selectedLoanUser() const
-{
-    QStringList parts;
-    if (!m_selected.loan.userFirstName.isEmpty()) parts << m_selected.loan.userFirstName;
-    if (!m_selected.loan.userLastName.isEmpty())  parts << m_selected.loan.userLastName;
-    return parts.join(QChar(u' '));
-}
-
-QString LibraryController::selectedLoanDue() const
-{
-    return m_selected.loan.due.isValid()
-               ? m_selected.loan.due.toString(Qt::ISODate)
-               : QString();
-}
-
 // ---------------------------------------------------------------------------
 // TMDb integration
 // ---------------------------------------------------------------------------
@@ -531,10 +370,8 @@ void LibraryController::setTmdbClient(TmdbClient* client)
     if (m_tmdb == client) return;
     if (m_tmdb) m_tmdb->disconnect(this);
     m_tmdb = client;
-    if (!m_tmdb) {
-        emit tmdbStateChanged();
-        return;
-    }
+    if (!m_tmdb) { emit tmdbStateChanged(); return; }
+
     connect(m_tmdb, &TmdbClient::searchFinished, this,
             [this](const QString&, int, const QList<TmdbCandidate>& hits, const QString& err)
     {
@@ -542,35 +379,12 @@ void LibraryController::setTmdbClient(TmdbClient* client)
         m_tmdbSearchError = err;
         m_tmdbCandidates  = hits;
         emit tmdbStateChanged();
-        if (err.isEmpty()) {
+        if (err.isEmpty())
             setStatus_(tr("TMDb: %1 candidates").arg(hits.size()));
-        } else {
+        else
             setStatus_(tr("TMDb search failed: %1").arg(err));
-        }
     });
     emit tmdbStateChanged();
-}
-
-QVariantList LibraryController::tmdbCandidates() const
-{
-    QVariantList out;
-    out.reserve(m_tmdbCandidates.size());
-    for (const auto& c : m_tmdbCandidates) {
-        QVariantMap m;
-        m.insert(QStringLiteral("id"),            c.id);
-        m.insert(QStringLiteral("title"),         c.title);
-        m.insert(QStringLiteral("originalTitle"), c.originalTitle);
-        m.insert(QStringLiteral("year"),          c.year());
-        m.insert(QStringLiteral("releaseDate"),   c.releaseDate);
-        m.insert(QStringLiteral("overview"),      c.overview);
-        m.insert(QStringLiteral("voteAverage"),   c.voteAverage);
-        m.insert(QStringLiteral("voteCount"),     c.voteCount);
-        m.insert(QStringLiteral("posterUrl"),
-                 m_tmdb ? m_tmdb->imageUrl(c.posterPath, QStringLiteral("w185"))
-                        : QString());
-        out << m;
-    }
-    return out;
 }
 
 void LibraryController::searchSelectedOnTmdb()
@@ -590,7 +404,6 @@ void LibraryController::searchSelectedOnTmdb()
     m_tmdbSearchingForId = m_selectedId;
     emit tmdbStateChanged();
     setStatus_(tr("Searching TMDb for '%1'…").arg(m_selected.title));
-
     m_tmdb->search(m_selected.title, m_selected.productionYear);
 }
 
@@ -598,6 +411,11 @@ void LibraryController::pickTmdbMatch(int tmdbId)
 {
     if (!m_repo) return;
     if (m_selectedId.isEmpty() || tmdbId <= 0) return;
+
+    QString posterPath;
+    for (const auto& c : m_tmdbCandidates) {
+        if (c.id == tmdbId) { posterPath = c.posterPath; break; }
+    }
 
     Movie m = m_selected;
     m.tmdbId = tmdbId;
@@ -611,18 +429,17 @@ void LibraryController::pickTmdbMatch(int tmdbId)
     emit tmdbStateChanged();
     emit tmdbMatchPicked(m.id, tmdbId);
     setStatus_(tr("Linked to TMDb #%1").arg(tmdbId));
-    // Refresh the model so the selection sticks even when the cached list
-    // would otherwise hand back a stale Movie on the next selectMovie().
-    if (m_movies) {
-        const int idx = m_movies->indexOfId(m.id);
-        if (idx >= 0) {
-            // Replace in-place via setMovies — cheap for the controller
-            // since QList shares its data implicitly.
-            QList<Movie> next = m_movies->movies();
-            next[idx] = m;
-            m_movies->setMovies(std::move(next));
-        }
+
+    // Update both models
+    const int listIdx = m_listModel->indexOfId(m.id);
+    if (listIdx >= 0) {
+        QList<Movie> next = m_listModel->movies();
+        next[listIdx] = m;
+        setMoviesOnBothModels_(std::move(next));
     }
+
+    if (!posterPath.isEmpty() && m_tmdb)
+        downloadTmdbPoster_(m.id, posterPath);
 }
 
 void LibraryController::clearTmdbCandidates()
@@ -631,6 +448,99 @@ void LibraryController::clearTmdbCandidates()
     m_tmdbCandidates.clear();
     m_tmdbSearchError.clear();
     emit tmdbStateChanged();
+}
+
+void LibraryController::downloadTmdbPoster_(const QString& movieId,
+                                            const QString& posterPath)
+{
+    const QString url = m_tmdb->imageUrl(posterPath, QStringLiteral("w500"));
+    if (url.isEmpty()) return;
+
+    const QString coversDir = m_libraryRoot + QStringLiteral("/covers");
+    QDir().mkpath(coversDir);
+    const QString savePath = coversDir + QStringLiteral("/")
+                           + movieId + QStringLiteral("f.jpg");
+
+    const QUrl imageUrl(url);
+    QNetworkRequest req(imageUrl);
+    auto* reply = m_tmdb->network()->get(req);
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, movieId, savePath]()
+    {
+        reply->deleteLater();
+        if (reply->error() != QNetworkReply::NoError) {
+            setStatus_(tr("Poster download failed: %1").arg(reply->errorString()));
+            return;
+        }
+        const QByteArray data = reply->readAll();
+        if (data.isEmpty()) return;
+
+        QFile file(savePath);
+        if (!file.open(QIODevice::WriteOnly)) {
+            setStatus_(tr("Cannot save poster: %1").arg(file.errorString()));
+            return;
+        }
+        file.write(data);
+        file.close();
+
+        if (!m_repo) return;
+        auto movie = m_repo->getById(movieId);
+        if (!movie.has_value()) return;
+        movie->coverFrontPath = savePath;
+        if (!m_repo->insert(*movie)) return;
+
+        if (m_selectedId == movieId) {
+            m_selected = *movie;
+            emit selectionChanged();
+        }
+        const int idx = m_listModel->indexOfId(movieId);
+        if (idx >= 0) {
+            QList<Movie> next = m_listModel->movies();
+            next[idx] = *movie;
+            setMoviesOnBothModels_(std::move(next));
+        }
+        setStatus_(tr("Cover saved for %1").arg(movie->title));
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Box-set grouping
+// ---------------------------------------------------------------------------
+
+QList<Movie> LibraryController::groupByBoxSet_(QList<Movie> movies)
+{
+    QHash<QString, int> idToIdx;
+    idToIdx.reserve(movies.size());
+    for (int i = 0; i < movies.size(); ++i)
+        idToIdx.insert(movies[i].id, i);
+
+    QSet<QString> placed;
+    placed.reserve(movies.size());
+    QList<Movie> result;
+    result.reserve(movies.size());
+
+    for (const auto& m : movies) {
+        if (placed.contains(m.id)) continue;
+        if (!m.boxSet.parentId.isEmpty() && idToIdx.contains(m.boxSet.parentId))
+            continue;
+
+        result.append(m);
+        placed.insert(m.id);
+
+        if (m.boxSet.isParent) {
+            for (const auto& childId : m.boxSet.childIds) {
+                if (!placed.contains(childId) && idToIdx.contains(childId)) {
+                    result.append(movies[idToIdx.value(childId)]);
+                    placed.insert(childId);
+                }
+            }
+        }
+    }
+    for (const auto& m : movies) {
+        if (!placed.contains(m.id))
+            result.append(m);
+    }
+    return result;
 }
 
 } // namespace xyz

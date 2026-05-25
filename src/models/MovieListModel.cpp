@@ -1,13 +1,10 @@
 #include "MovieListModel.h"
 
-#include <QUrl>
 #include <QVariant>
 
 namespace xyz {
 namespace {
 
-// Find the first credit with `creditType == "Direction"`. Falls back to
-// the first credit overall; returns an empty string if none.
 QString primaryDirector(const Movie& m)
 {
     for (const auto& c : m.credits) {
@@ -19,15 +16,6 @@ QString primaryDirector(const Movie& m)
         }
     }
     return {};
-}
-
-// QML Image expects either an absolute file:// URL or a qrc:/ path.
-// Plain local paths are still accepted by QML but get noisy warnings;
-// converting once here keeps delegates simple.
-QString coverUrl(const QString& path)
-{
-    if (path.isEmpty()) return {};
-    return QUrl::fromLocalFile(path).toString();
 }
 
 } // namespace
@@ -55,12 +43,17 @@ QVariant MovieListModel::data(const QModelIndex& index, int role) const
     case YearRole:             return m.productionYear;
     case RuntimeRole:          return m.runningTimeMinutes;
     case FormatRole:           return m.format;
-    case CoverFrontPathRole:   return coverUrl(m.coverFrontPath);
-    case CoverBackPathRole:    return coverUrl(m.coverBackPath);
+    case CoverFrontPathRole:   return m.coverFrontPath;
+    case CoverBackPathRole:    return m.coverBackPath;
     case DirectorNameRole:     return primaryDirector(m);
     case RatingValueRole:      return m.rating.value;
     case RatingAgeRole:        return m.rating.age;
     case GenresJoinedRole:     return m.genres.join(QStringLiteral(", "));
+    case StudiosJoinedRole:    return m.studios.join(QStringLiteral(", "));
+    case CaseTypeRole:         return m.caseType;
+    case AspectRatioRole:      return m.videoFormat.aspectRatio;
+    case TmdbIdRole:           return m.tmdbId;
+    case BoxSetParentIdRole:   return m.boxSet.parentId;
     case IsLoanedRole:         return m.loan.loaned;
     case IsBoxSetParentRole:   return m.boxSet.isParent;
     default:                   return {};
@@ -83,6 +76,11 @@ QHash<int, QByteArray> MovieListModel::roleNames() const
         {RatingValueRole,    "ratingValue"},
         {RatingAgeRole,      "ratingAge"},
         {GenresJoinedRole,   "genresJoined"},
+        {StudiosJoinedRole,  "studiosJoined"},
+        {CaseTypeRole,       "caseType"},
+        {AspectRatioRole,    "aspectRatio"},
+        {TmdbIdRole,         "tmdbId"},
+        {BoxSetParentIdRole, "boxSetParentId"},
         {IsLoanedRole,       "isLoaned"},
         {IsBoxSetParentRole, "isBoxSetParent"},
     };

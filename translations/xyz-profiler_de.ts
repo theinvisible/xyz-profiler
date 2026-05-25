@@ -43,6 +43,85 @@
         <source>%1 / %2</source>
         <translation>%1 / %2</translation>
     </message>
+    <message>
+        <source>Grid View</source>
+        <translation>Symbolansicht</translation>
+    </message>
+    <message>
+        <source>List View</source>
+        <translation>Listenansicht</translation>
+    </message>
+    <message>
+        <source>Settings…</source>
+        <translation>Einstellungen …</translation>
+    </message>
+</context>
+<context>
+    <name>MovieTableView</name>
+    <message>
+        <source>Title</source>
+        <translation>Titel</translation>
+    </message>
+    <message>
+        <source>Original Title</source>
+        <translation>Originaltitel</translation>
+    </message>
+    <message>
+        <source>Sort Title</source>
+        <translation>Sortiertitel</translation>
+    </message>
+    <message>
+        <source>Year</source>
+        <translation>Jahr</translation>
+    </message>
+    <message>
+        <source>Runtime</source>
+        <translation>Laufzeit</translation>
+    </message>
+    <message>
+        <source>Format</source>
+        <translation>Format</translation>
+    </message>
+    <message>
+        <source>Rating</source>
+        <translation>Bewertung</translation>
+    </message>
+    <message>
+        <source>Age</source>
+        <translation>Alter</translation>
+    </message>
+    <message>
+        <source>Director</source>
+        <translation>Regie</translation>
+    </message>
+    <message>
+        <source>Genres</source>
+        <translation>Genres</translation>
+    </message>
+    <message>
+        <source>Studios</source>
+        <translation>Studios</translation>
+    </message>
+    <message>
+        <source>Case</source>
+        <translation>Hülle</translation>
+    </message>
+    <message>
+        <source>Aspect Ratio</source>
+        <translation>Seitenverhältnis</translation>
+    </message>
+    <message>
+        <source>TMDb ID</source>
+        <translation>TMDb-ID</translation>
+    </message>
+    <message>
+        <source>Loaned</source>
+        <translation>Verliehen</translation>
+    </message>
+    <message>
+        <source>Box Set</source>
+        <translation>Box-Set</translation>
+    </message>
 </context>
 <context>
     <name>MovieDetail</name>
@@ -203,7 +282,63 @@
     </message>
     <message>
         <source>Search &apos;%1&apos;: %2 hits</source>
-        <translation>Suche „%1“: %2 Treffer</translation>
+        <translation>Suche „%1”: %2 Treffer</translation>
+    </message>
+    <message>
+        <source>Linked to TMDb #%1</source>
+        <translation>Verknüpft mit TMDb #%1</translation>
+    </message>
+    <message>
+        <source>Failed to persist TMDb match: %1</source>
+        <translation>TMDb-Zuordnung konnte nicht gespeichert werden: %1</translation>
+    </message>
+    <message>
+        <source>Poster download failed: %1</source>
+        <translation>Poster-Download fehlgeschlagen: %1</translation>
+    </message>
+    <message>
+        <source>Cannot save poster: %1</source>
+        <translation>Poster kann nicht gespeichert werden: %1</translation>
+    </message>
+    <message>
+        <source>Failed to update cover: %1</source>
+        <translation>Cover-Aktualisierung fehlgeschlagen: %1</translation>
+    </message>
+    <message>
+        <source>Cover saved for %1</source>
+        <translation>Cover gespeichert für %1</translation>
+    </message>
+    <message>
+        <source>TMDb: %1 candidates</source>
+        <translation>TMDb: %1 Kandidaten</translation>
+    </message>
+    <message>
+        <source>TMDb search failed: %1</source>
+        <translation>TMDb-Suche fehlgeschlagen: %1</translation>
+    </message>
+    <message>
+        <source>Searching TMDb for &apos;%1&apos;…</source>
+        <translation>Suche TMDb nach „%1” …</translation>
+    </message>
+    <message>
+        <source>TMDb is not configured (set TMDB_API_KEY)</source>
+        <translation>TMDb ist nicht konfiguriert (TMDB_API_KEY setzen)</translation>
+    </message>
+    <message>
+        <source>Import cancelled</source>
+        <translation>Import abgebrochen</translation>
+    </message>
+    <message>
+        <source>Ready to import %1 movies — confirm to write</source>
+        <translation>Bereit %1 Filme zu importieren — bestätigen zum Schreiben</translation>
+    </message>
+    <message>
+        <source>Writing to database…</source>
+        <translation>Schreibe in die Datenbank …</translation>
+    </message>
+    <message>
+        <source>Reading %1…</source>
+        <translation>Lese %1 …</translation>
     </message>
 </context>
 </TS>

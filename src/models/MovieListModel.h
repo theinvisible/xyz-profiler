@@ -4,20 +4,13 @@
 
 #include <QAbstractListModel>
 #include <QList>
-#include <QQmlEngine>
 
 namespace xyz {
 
-// Exposes a list of `Movie` to QML views (CoverGrid, list views, ...).
-//
-// Roles cover the fields that QML delegates need cheaply at scroll time —
-// title, year, format, cover path, runtime, primary director name, rating
-// — plus an `id` for navigating to the detail view. Heavy fields (full
-// cast/crew, audio tracks, ...) are not exposed as roles; the detail view
-// fetches them by id from the controller on demand.
-// Not QML_ELEMENT — QML sees this model only via the controller's
-// `movies` property, which guarantees it's the live instance backing the
-// repository's results.
+// Role-based list model exposing Movie data to QListView (icon mode).
+// Roles provide the fields the cover-grid delegate paints: title, year,
+// cover path, director, badges. Heavy fields (cast, audio, ...) are
+// fetched on demand when the user selects a movie.
 class MovieListModel : public QAbstractListModel {
     Q_OBJECT
 
@@ -36,6 +29,11 @@ public:
         RatingValueRole,
         RatingAgeRole,
         GenresJoinedRole,        // ", "-joined for label rendering
+        StudiosJoinedRole,
+        CaseTypeRole,
+        AspectRatioRole,
+        TmdbIdRole,
+        BoxSetParentIdRole,
         IsLoanedRole,
         IsBoxSetParentRole
     };
@@ -60,7 +58,7 @@ public:
     // doesn't outlive this model.
     const Movie* find(const QString& id) const;
 
-    Q_INVOKABLE int indexOfId(const QString& id) const;
+    int indexOfId(const QString& id) const;
 
 private:
     QList<Movie> m_movies;
