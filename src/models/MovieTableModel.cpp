@@ -76,6 +76,9 @@ QVariant MovieTableModel::data(const QModelIndex& index, int role) const
         case TmdbId:        return m.tmdbId != 0
                                    ? QString::number(m.tmdbId)
                                    : QString();
+        case PurchaseDate:  return m.purchase.date.isValid()
+                                   ? m.purchase.date.toString(Qt::ISODate)
+                                   : QString();
         case Loaned:        return m.loan.loaned
                                    ? QStringLiteral("✓")
                                    : QString();
@@ -104,6 +107,7 @@ QVariant MovieTableModel::data(const QModelIndex& index, int role) const
         case CaseType:      return m.caseType;
         case AspectRatio:   return m.videoFormat.aspectRatio;
         case TmdbId:        return m.tmdbId;
+        case PurchaseDate:  return m.purchase.date;
         case Loaned:        return m.loan.loaned;
         case BoxSetParent:  return m.boxSet.isParent;
         case ColumnCount:   break;
@@ -158,6 +162,7 @@ QVariant MovieTableModel::headerData(int section, Qt::Orientation orientation,
     case CaseType:      return tr("Case");
     case AspectRatio:   return tr("Aspect Ratio");
     case TmdbId:        return tr("TMDb ID");
+    case PurchaseDate:  return tr("Purchase Date");
     case Loaned:        return tr("Loaned");
     case BoxSetParent:  return tr("Box Set");
     case ColumnCount:   break;

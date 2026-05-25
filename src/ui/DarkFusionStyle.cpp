@@ -85,7 +85,7 @@ QToolBar QLineEdit {
 QToolBar QLineEdit:focus {
     border-color: #3a7bd5;
 }
-QTableView {
+QTableView, QTreeView {
     background-color: #1a1d24;
     alternate-background-color: #1e2128;
     border: 1px solid #2a2e38;
@@ -96,13 +96,32 @@ QTableView {
     selection-color: #ffffff;
     outline: none;
 }
-QTableView::item {
+QTableView::item, QTreeView::item {
     padding: 4px 6px;
     border: none;
 }
-QTableView::item:selected {
+QTableView::item:selected, QTreeView::item:selected {
     background-color: #3a7bd5;
     color: #ffffff;
+}
+QTreeView::item:hover {
+    background-color: #252830;
+}
+QTreeView::item:selected:hover {
+    background-color: #3a7bd5;
+}
+QTreeView::branch {
+    background: transparent;
+}
+QTreeView::branch:has-children:!has-siblings:closed,
+QTreeView::branch:closed:has-children:has-siblings {
+    border-image: none;
+    image: url(:/branch-closed.svg);
+}
+QTreeView::branch:open:has-children:!has-siblings,
+QTreeView::branch:open:has-children:has-siblings {
+    border-image: none;
+    image: url(:/branch-open.svg);
 }
 QHeaderView::section {
     background-color: #1e2128;

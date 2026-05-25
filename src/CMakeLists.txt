@@ -82,6 +82,8 @@ qt_add_executable(xyz-profiler
     models/MovieSortProxyModel.cpp
     models/MovieTableModel.h
     models/MovieTableModel.cpp
+    models/MovieTreeModel.h
+    models/MovieTreeModel.cpp
     controllers/LibraryController.h
     controllers/LibraryController.cpp
     controllers/SettingsController.h

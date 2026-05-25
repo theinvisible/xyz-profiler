@@ -3,5 +3,7 @@
     <qresource prefix="/">
         <file>app.ico</file>
         <file>tmdb_logo.svg</file>
+        <file>branch-closed.svg</file>
+        <file>branch-open.svg</file>
     </qresource>
 </RCC>

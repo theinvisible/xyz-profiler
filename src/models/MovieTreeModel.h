@@ -1,0 +1,51 @@
+#pragma once
+
+#include "domain/Movie.h"
+
+#include <QAbstractItemModel>
+#include <QList>
+#include <memory>
+
+namespace xyz {
+
+class MovieTreeModel : public QAbstractItemModel {
+    Q_OBJECT
+
+public:
+    enum Column {
+        Title = 0, OriginalTitle, SortTitle, Year, Runtime, Format,
+        Rating, RatingAge, Director, Genres, Studios, CaseType,
+        AspectRatio, TmdbId, PurchaseDate, Loaned, BoxSetParent, ColumnCount
+    };
+
+    explicit MovieTreeModel(QObject* parent = nullptr);
+    ~MovieTreeModel() override;
+
+    // QAbstractItemModel interface
+    QModelIndex index(int row, int column, const QModelIndex& parent = {}) const override;
+    QModelIndex parent(const QModelIndex& child) const override;
+    int rowCount(const QModelIndex& parent = {}) const override;
+    int columnCount(const QModelIndex& parent = {}) const override;
+    QVariant data(const QModelIndex& index, int role) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role) const override;
+
+    void setMovies(const QList<Movie>& movies);
+    QString movieIdAtIndex(const QModelIndex& index) const;
+
+private:
+    struct Node {
+        Movie movie;
+        Node* parent = nullptr;
+        QList<Node*> children;
+        int row = 0;
+    };
+
+    Node* nodeFromIndex(const QModelIndex& index) const;
+    static QVariant columnData(const Movie& m, int col, int role);
+    static QString primaryDirector(const Movie& m);
+    void clear();
+
+    Node* m_root = nullptr;
+};
+
+} // namespace xyz

@@ -4,6 +4,7 @@
 #include "models/MovieListModel.h"
 #include "models/MovieSortProxyModel.h"
 #include "models/MovieTableModel.h"
+#include "models/MovieTreeModel.h"
 #include "tmdb/TmdbTypes.h"
 
 #include <QFuture>
@@ -37,6 +38,7 @@ public:
     // ---- Models for views ---------------------------------------------------
     MovieListModel*      listModel()  const { return m_listModel.get(); }
     MovieTableModel*     tableModel() const { return m_tableModel.get(); }
+    MovieTreeModel*      treeModel()  const { return m_treeModel.get(); }
     MovieSortProxyModel* sortProxy()  const { return m_sortProxy.get(); }
 
     // ---- Selection ----------------------------------------------------------
@@ -114,6 +116,7 @@ private:
     std::unique_ptr<MovieRepository>     m_repo;
     std::unique_ptr<MovieListModel>      m_listModel;
     std::unique_ptr<MovieTableModel>     m_tableModel;
+    std::unique_ptr<MovieTreeModel>      m_treeModel;
     std::unique_ptr<MovieSortProxyModel> m_sortProxy;
 
     QString m_libraryPath;

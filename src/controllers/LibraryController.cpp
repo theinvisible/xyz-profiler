@@ -7,6 +7,7 @@
 #include "models/MovieListModel.h"
 #include "models/MovieSortProxyModel.h"
 #include "models/MovieTableModel.h"
+#include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 
 #include <QDir>
@@ -27,6 +28,7 @@ LibraryController::LibraryController(QObject* parent)
     : QObject(parent),
       m_listModel(std::make_unique<MovieListModel>()),
       m_tableModel(std::make_unique<MovieTableModel>()),
+      m_treeModel(std::make_unique<MovieTreeModel>()),
       m_sortProxy(std::make_unique<MovieSortProxyModel>())
 {
     m_sortProxy->setSourceModel(m_listModel.get());
@@ -65,9 +67,9 @@ void LibraryController::setStatus_(const QString& message)
 
 void LibraryController::setMoviesOnBothModels_(QList<Movie> movies)
 {
-    auto grouped = groupByBoxSet_(std::move(movies));
-    m_listModel->setMovies(grouped);
-    m_tableModel->setMovies(std::move(grouped));
+    m_listModel->setMovies(movies);
+    m_tableModel->setMovies(movies);
+    m_treeModel->setMovies(movies);
 }
 
 // ---------------------------------------------------------------------------

@@ -36,6 +36,7 @@ public:
         CaseType,
         AspectRatio,
         TmdbId,
+        PurchaseDate,
         Loaned,
         BoxSetParent,
         ColumnCount

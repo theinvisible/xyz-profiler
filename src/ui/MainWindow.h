@@ -9,7 +9,7 @@ class QLineEdit;
 class QProgressDialog;
 class QSortFilterProxyModel;
 class QStackedWidget;
-class QTableView;
+class QTreeView;
 
 namespace xyz {
 
@@ -42,7 +42,7 @@ private:
     void switchView_(const QString& mode);
     void showImportDialog_();
     void showSettingsDialog_();
-    void setupTableColumnVisibility_();
+    void setupTreeColumnVisibility_();
 
     LibraryController*   m_controller;
     SettingsController*  m_settings;
@@ -55,14 +55,15 @@ private:
     QAction*     m_listAction   = nullptr;
 
     // Central
-    QStackedWidget*       m_viewStack    = nullptr;
-    CoverGridWidget*      m_coverGrid    = nullptr;
-    QTableView*           m_tableView    = nullptr;
-    QSortFilterProxyModel* m_tableSortProxy = nullptr;
-    MovieDetailWidget*    m_detailPane   = nullptr;
+    QStackedWidget*        m_viewStack      = nullptr;
+    CoverGridWidget*       m_coverGrid      = nullptr;
+    QSortFilterProxyModel* m_gridFilterProxy = nullptr;
+    QTreeView*             m_treeView       = nullptr;
+    QSortFilterProxyModel* m_treeSortProxy  = nullptr;
+    MovieDetailWidget*     m_detailPane     = nullptr;
 
     // Progress
-    QProgressDialog*      m_progressDlg  = nullptr;
+    QProgressDialog*       m_progressDlg    = nullptr;
 };
 
 } // namespace xyz

@@ -4,7 +4,8 @@
 
 #include "controllers/LibraryController.h"
 #include "controllers/SettingsController.h"
-#include "models/MovieTableModel.h"
+#include "models/MovieListModel.h"
+#include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 #include "ui/CoverGridWidget.h"
 #include "ui/ImportPreviewDialog.h"
@@ -25,8 +26,8 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
-#include <QTableView>
 #include <QToolBar>
+#include <QTreeView>
 #include <QVBoxLayout>
 
 namespace xyz {
@@ -66,7 +67,6 @@ void MainWindow::buildToolBar_()
     tb->setIconSize(QSize(16, 16));
 
     tb->addAction(tr("Import Collection.xml…"), this, &MainWindow::showImportDialog_);
-
     tb->addSeparator();
 
     auto* viewGroup = new QActionGroup(this);
@@ -100,7 +100,6 @@ void MainWindow::buildToolBar_()
     tb->addWidget(spacer);
 
     m_movieCount = new QLabel;
-    m_movieCount->setStyleSheet(QStringLiteral("QLabel { opacity: 0.7; }"));
     tb->addWidget(m_movieCount);
 
     tb->addSeparator();
@@ -110,50 +109,52 @@ void MainWindow::buildToolBar_()
 void MainWindow::buildCentralWidget_()
 {
     auto* splitter = new QSplitter(Qt::Horizontal);
-
-    // Left: stacked view (grid / table)
     m_viewStack = new QStackedWidget;
 
+    // ---- Cover grid (index 0) — filter out box-set children ----------------
+    m_gridFilterProxy = new QSortFilterProxyModel(this);
+    m_gridFilterProxy->setSourceModel(m_controller->sortProxy());
+    m_gridFilterProxy->setFilterRole(MovieListModel::BoxSetParentIdRole);
+    m_gridFilterProxy->setFilterRegularExpression(
+        QRegularExpression(QStringLiteral("^$")));
+
     m_coverGrid = new CoverGridWidget;
-    m_coverGrid->setModel(m_controller->sortProxy());
+    m_coverGrid->setModel(m_gridFilterProxy);
     m_viewStack->addWidget(m_coverGrid);
 
-    // Table view
-    m_tableSortProxy = new QSortFilterProxyModel(this);
-    m_tableSortProxy->setSourceModel(m_controller->tableModel());
-    m_tableSortProxy->setSortRole(Qt::UserRole);
-    m_tableSortProxy->setSortLocaleAware(true);
+    // ---- Tree view (index 1) — box-set parents expandable ------------------
+    m_treeSortProxy = new QSortFilterProxyModel(this);
+    m_treeSortProxy->setSourceModel(m_controller->treeModel());
+    m_treeSortProxy->setSortRole(Qt::UserRole);
+    m_treeSortProxy->setSortLocaleAware(true);
+    m_treeSortProxy->setRecursiveFilteringEnabled(true);
 
-    m_tableView = new QTableView;
-    m_tableView->setModel(m_tableSortProxy);
-    m_tableView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_tableView->setSelectionMode(QAbstractItemView::SingleSelection);
-    m_tableView->setSortingEnabled(true);
-    m_tableView->setAlternatingRowColors(true);
-    m_tableView->verticalHeader()->setVisible(false);
-    m_tableView->verticalHeader()->setDefaultSectionSize(26);
-    m_tableView->horizontalHeader()->setStretchLastSection(true);
-    m_tableView->horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
-    m_tableView->setShowGrid(false);
-    m_tableView->setStyleSheet(QStringLiteral(
-        "QTableView { selection-background-color: #3a7bd5; selection-color: white; }"
-        "QTableView::item:selected { background-color: #3a7bd5; color: white; }"));
+    m_treeView = new QTreeView;
+    m_treeView->setModel(m_treeSortProxy);
+    m_treeView->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_treeView->setSortingEnabled(true);
+    m_treeView->setAlternatingRowColors(true);
+    m_treeView->setRootIsDecorated(true);
+    m_treeView->setItemsExpandable(true);
+    m_treeView->setAnimated(true);
+    m_treeView->setUniformRowHeights(true);
+    m_treeView->header()->setStretchLastSection(true);
+    m_treeView->header()->setContextMenuPolicy(Qt::CustomContextMenu);
 
-    connect(m_tableView->horizontalHeader(), &QWidget::customContextMenuRequested,
-            this, [this](const QPoint& pos) {
-        Q_UNUSED(pos);
+    connect(m_treeView->header(), &QWidget::customContextMenuRequested,
+            this, [this](const QPoint&) {
         QMenu menu;
-        for (int col = 0; col < MovieTableModel::ColumnCount; ++col) {
+        for (int col = 0; col < MovieTreeModel::ColumnCount; ++col) {
             auto* act = menu.addAction(
-                m_controller->tableModel()->headerData(col, Qt::Horizontal).toString());
+                m_controller->treeModel()->headerData(col, Qt::Horizontal, Qt::DisplayRole).toString());
             act->setCheckable(true);
-            act->setChecked(!m_tableView->isColumnHidden(col));
+            act->setChecked(!m_treeView->isColumnHidden(col));
             connect(act, &QAction::toggled, this, [this, col](bool visible) {
-                m_tableView->setColumnHidden(col, !visible);
-                // Persist
+                m_treeView->setColumnHidden(col, !visible);
                 QStringList visCols;
-                for (int c = 0; c < MovieTableModel::ColumnCount; ++c) {
-                    if (!m_tableView->isColumnHidden(c))
+                for (int c = 0; c < MovieTreeModel::ColumnCount; ++c) {
+                    if (!m_treeView->isColumnHidden(c))
                         visCols << QString::number(c);
                 }
                 m_settings->setVisibleTableColumns(visCols.join(QStringLiteral(";")));
@@ -162,32 +163,32 @@ void MainWindow::buildCentralWidget_()
         menu.exec(QCursor::pos());
     });
 
-    setupTableColumnVisibility_();
-    m_viewStack->addWidget(m_tableView);
+    setupTreeColumnVisibility_();
+    m_treeView->sortByColumn(MovieTreeModel::PurchaseDate, Qt::DescendingOrder);
+    m_viewStack->addWidget(m_treeView);
 
     splitter->addWidget(m_viewStack);
 
-    // Right: detail pane
+    // ---- Detail pane (right) -----------------------------------------------
     m_detailPane = new MovieDetailWidget;
     splitter->addWidget(m_detailPane);
 
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 0);
     splitter->setSizes({940, 460});
-
     setCentralWidget(splitter);
 
-    // Item activation
+    // ---- Signals -----------------------------------------------------------
     connect(m_coverGrid, &CoverGridWidget::movieClicked,
             m_controller, &LibraryController::selectMovie);
-    connect(m_tableView, &QAbstractItemView::clicked, this,
+
+    connect(m_treeView, &QAbstractItemView::clicked, this,
             [this](const QModelIndex& idx) {
-        const auto srcIdx = m_tableSortProxy->mapToSource(idx);
-        const QString id = m_controller->tableModel()->movieIdAtRow(srcIdx.row());
+        const auto srcIdx = m_treeSortProxy->mapToSource(idx);
+        const QString id = m_controller->treeModel()->movieIdAtIndex(srcIdx);
         if (!id.isEmpty()) m_controller->selectMovie(id);
     });
 
-    // TMDb from detail pane
     connect(m_detailPane, &MovieDetailWidget::tmdbSearchRequested,
             m_controller, &LibraryController::searchSelectedOnTmdb);
 }
@@ -197,30 +198,35 @@ void MainWindow::buildStatusBar_()
     statusBar()->showMessage(m_controller->statusMessage());
 }
 
-void MainWindow::setupTableColumnVisibility_()
+void MainWindow::setupTreeColumnVisibility_()
 {
     const QString saved = m_settings->visibleTableColumns();
-    if (saved.isEmpty()) return;
+
+    static const QSet<int> defaults = {
+        MovieTreeModel::Title, MovieTreeModel::Year,
+        MovieTreeModel::Runtime, MovieTreeModel::Format,
+        MovieTreeModel::Rating, MovieTreeModel::Director,
+        MovieTreeModel::PurchaseDate
+    };
+
+    if (saved.isEmpty()) {
+        for (int c = 0; c < MovieTreeModel::ColumnCount; ++c)
+            m_treeView->setColumnHidden(c, !defaults.contains(c));
+        return;
+    }
 
     const QStringList visible = saved.split(QStringLiteral(";"));
-
-    // Check if stored as column indices (digits) or role names (legacy)
-    bool numeric = !visible.isEmpty() && visible.first().at(0).isDigit();
+    bool numeric = !visible.isEmpty() && !visible.first().isEmpty()
+                   && visible.first().at(0).isDigit();
 
     if (numeric) {
         QSet<int> visCols;
         for (const auto& s : visible) visCols.insert(s.toInt());
-        for (int c = 0; c < MovieTableModel::ColumnCount; ++c)
-            m_tableView->setColumnHidden(c, !visCols.contains(c));
+        for (int c = 0; c < MovieTreeModel::ColumnCount; ++c)
+            m_treeView->setColumnHidden(c, !visCols.contains(c));
     } else {
-        // Legacy role-name format from QML era — show default columns
-        static const QSet<int> defaults = {
-            MovieTableModel::Title, MovieTableModel::Year,
-            MovieTableModel::Runtime, MovieTableModel::Format,
-            MovieTableModel::Rating, MovieTableModel::Director
-        };
-        for (int c = 0; c < MovieTableModel::ColumnCount; ++c)
-            m_tableView->setColumnHidden(c, !defaults.contains(c));
+        for (int c = 0; c < MovieTreeModel::ColumnCount; ++c)
+            m_treeView->setColumnHidden(c, !defaults.contains(c));
     }
 }
 
@@ -310,8 +316,6 @@ void MainWindow::onImportStateChanged_()
 
 void MainWindow::onTmdbStateChanged_()
 {
-    // Don't open the dialog while the search is still running —
-    // exec() blocks and a second invocation would stack a new dialog.
     if (m_controller->tmdbSearching())
         return;
 
@@ -320,7 +324,6 @@ void MainWindow::onTmdbStateChanged_()
         return;
 
     TmdbMatchDialog dlg(this);
-
     if (!m_controller->tmdbSearchError().isEmpty())
         dlg.setError(m_controller->tmdbSearchError());
 
@@ -332,11 +335,10 @@ void MainWindow::onTmdbStateChanged_()
         dlg.loadPosters(m_tmdb->network());
     }
 
-    if (dlg.exec() == QDialog::Accepted && dlg.selectedTmdbId() > 0) {
+    if (dlg.exec() == QDialog::Accepted && dlg.selectedTmdbId() > 0)
         m_controller->pickTmdbMatch(dlg.selectedTmdbId());
-    } else {
+    else
         m_controller->clearTmdbCandidates();
-    }
 }
 
 void MainWindow::switchView_(const QString& mode)
@@ -350,10 +352,8 @@ void MainWindow::switchView_(const QString& mode)
 void MainWindow::showImportDialog_()
 {
     const QString file = QFileDialog::getOpenFileName(
-        this,
-        tr("Import DVD Profiler Collection.xml"),
-        {},
-        tr("DVD Profiler XML (Collection.xml *.xml)"));
+        this, tr("Import DVD Profiler Collection.xml"),
+        {}, tr("DVD Profiler XML (Collection.xml *.xml)"));
     if (file.isEmpty()) return;
     m_controller->beginImport(file, m_settings->imagesDirectory());
 }
