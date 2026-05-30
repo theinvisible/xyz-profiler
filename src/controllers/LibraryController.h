@@ -80,9 +80,17 @@ public:
     void searchSelectedOnTmdb();
     void pickTmdbMatch(int tmdbId);
     void clearTmdbCandidates();
+
+    // Persist user edits to an existing entry (the edit dialog mutates a copy of
+    // the full Movie, so unedited fields — box set, tmdbId, cast — are kept).
+    void updateMovie(const Movie& edited);
+    // Delete an entry by id (after the UI has confirmed). Refreshes the views.
+    void deleteMovie(const QString& id);
     // Create a brand-new collection entry from a TMDb movie (the "add title"
     // flow): fetches full details, inserts, selects it, and downloads the poster.
-    void addMovieFromTmdb(int tmdbId, const QString& posterPath = {});
+    // `format` is the disc format the user chose ("DVD" / "BluRay" / "UHD").
+    void addMovieFromTmdb(int tmdbId, const QString& format,
+                          const QString& posterPath = {});
 
 signals:
     void libraryChanged();
@@ -154,6 +162,7 @@ private:
     // flight, so the shared movieFinished handler knows to create a Movie.
     int                             m_addingTmdbId = 0;
     QString                         m_addingPosterPath;
+    QString                         m_addingFormat;
 };
 
 } // namespace xyz

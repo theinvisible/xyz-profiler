@@ -396,8 +396,10 @@ void LibraryController::setTmdbClient(TmdbClient* client)
         if (m_addingTmdbId == 0) return;
         const int     reqId  = m_addingTmdbId;
         const QString poster = m_addingPosterPath;
+        const QString format = m_addingFormat;
         m_addingTmdbId = 0;
         m_addingPosterPath.clear();
+        m_addingFormat.clear();
 
         if (!err.isEmpty()) {
             setStatus_(tr("Could not fetch title from TMDb: %1").arg(err));
@@ -422,6 +424,7 @@ void LibraryController::setTmdbClient(TmdbClient* client)
         m.studios            = d.productionCompanies;
         m.countriesOfOrigin  = d.productionCountries;
         m.runningTimeMinutes = d.runtime;
+        m.format             = format;
         m.tmdbId             = d.id;
         m.membership.type    = QStringLiteral("Owned");
         m.profileTimestamp   = QDateTime::currentDateTime();
@@ -500,7 +503,56 @@ void LibraryController::pickTmdbMatch(int tmdbId)
         downloadTmdbPoster_(m.id, posterPath);
 }
 
-void LibraryController::addMovieFromTmdb(int tmdbId, const QString& posterPath)
+void LibraryController::updateMovie(const Movie& edited)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (edited.id.isEmpty()) return;
+
+    if (!m_repo->insert(edited)) {   // insert() is an upsert by id
+        setStatus_(tr("Failed to save changes: %1").arg(m_repo->lastError()));
+        return;
+    }
+
+    if (m_selectedId == edited.id) {
+        m_selected = edited;
+        emit selectionChanged();
+    }
+
+    // Patch the row in place in the models (cheaper than a full refresh and it
+    // keeps scroll position) — same approach as pickTmdbMatch.
+    const int listIdx = m_listModel->indexOfId(edited.id);
+    if (listIdx >= 0) {
+        QList<Movie> next = m_listModel->movies();
+        next[listIdx] = edited;
+        setMoviesOnBothModels_(std::move(next));
+        emit moviesChanged();
+    } else {
+        refresh();
+    }
+    setStatus_(tr("Updated \"%1\"").arg(edited.title));
+}
+
+void LibraryController::deleteMovie(const QString& id)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (id.isEmpty()) return;
+
+    QString title;
+    if (const auto* m = m_listModel->find(id)) title = m->title;
+
+    if (!m_repo->remove(id)) {
+        setStatus_(tr("Failed to delete: %1").arg(m_repo->lastError()));
+        return;
+    }
+
+    if (m_selectedId == id) clearSelection();
+    refresh();   // reloads all models from the DB and re-selects sensibly
+    setStatus_(title.isEmpty() ? tr("Deleted title")
+                               : tr("Deleted \"%1\"").arg(title));
+}
+
+void LibraryController::addMovieFromTmdb(int tmdbId, const QString& format,
+                                         const QString& posterPath)
 {
     if (!m_repo) { setStatus_(tr("No library open")); return; }
     if (tmdbId <= 0) return;
@@ -510,6 +562,7 @@ void LibraryController::addMovieFromTmdb(int tmdbId, const QString& posterPath)
     }
     m_addingTmdbId     = tmdbId;
     m_addingPosterPath = posterPath;
+    m_addingFormat     = format;
     setStatus_(tr("Adding title from TMDb…"));
     m_tmdb->getMovie(tmdbId);
 }

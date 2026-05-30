@@ -135,11 +135,32 @@ int runGui(int argc, char* argv[],
                            QStringLiteral("_"), QStringLiteral(":/i18n")))
         QApplication::installTranslator(&appTranslator);
 
-    static QTranslator qtTranslator;
-    const QString qtTrDir = QLibraryInfo::path(QLibraryInfo::TranslationsPath);
-    if (qtTranslator.load(QLocale(), QStringLiteral("qtbase"),
-                          QStringLiteral("_"), qtTrDir))
-        QApplication::installTranslator(&qtTranslator);
+    // Qt's own strings (standard dialog buttons: OK/Cancel/Yes/No/Save, …) live
+    // in qtbase_<locale>.qm. Try the Qt install's translations dir first, then a
+    // translations/ folder next to the executable (where windeployqt copies
+    // them for the shipped build). Keep the translators alive for the app's
+    // lifetime. qtbase covers the widgets; the legacy "qt" meta-catalog is
+    // loaded too when present, harmless otherwise.
+    const QStringList qtTrDirs = {
+        QLibraryInfo::path(QLibraryInfo::TranslationsPath),
+        QCoreApplication::applicationDirPath() + QStringLiteral("/translations"),
+    };
+    static QTranslator qtBaseTranslator;
+    static QTranslator qtMetaTranslator;
+    for (const QString& dir : qtTrDirs) {
+        if (qtBaseTranslator.load(QLocale(), QStringLiteral("qtbase"),
+                                  QStringLiteral("_"), dir)) {
+            QApplication::installTranslator(&qtBaseTranslator);
+            break;
+        }
+    }
+    for (const QString& dir : qtTrDirs) {
+        if (qtMetaTranslator.load(QLocale(), QStringLiteral("qt"),
+                                  QStringLiteral("_"), dir)) {
+            QApplication::installTranslator(&qtMetaTranslator);
+            break;
+        }
+    }
 
     // Settings + Theme
     xyz::SettingsController settings;

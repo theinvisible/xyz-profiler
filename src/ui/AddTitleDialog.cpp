@@ -205,13 +205,35 @@ void AddTitleDialog::buildUi_()
     });
     root->addWidget(m_listWidget, 1);
 
-    // ---- Buttons -----------------------------------------------------------
+    // ---- Format + buttons --------------------------------------------------
+    // The disc format isn't part of TMDb data, so the user picks it here; it's
+    // stored on the new entry and drives the format badge in both views.
     auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);
+
+    auto* formatRow = new QHBoxLayout;
+    formatRow->addWidget(new QLabel(tr("Format")));
+    m_formatCombo = new QComboBox;
+    m_formatCombo->addItem(tr("DVD"),      QVariant(QStringLiteral("DVD")));
+    m_formatCombo->addItem(tr("Blu-ray"),  QVariant(QStringLiteral("BluRay")));
+    m_formatCombo->addItem(tr("Ultra HD"), QVariant(QStringLiteral("UHD")));
+    formatRow->addWidget(m_formatCombo);
+    formatRow->addStretch();
+
     m_addBtn = buttons->addButton(tr("Add to collection"), QDialogButtonBox::AcceptRole);
     m_addBtn->setEnabled(false);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
-    root->addWidget(buttons);
+
+    auto* bottomRow = new QHBoxLayout;
+    bottomRow->addLayout(formatRow);
+    bottomRow->addWidget(buttons, 1);
+    root->addLayout(bottomRow);
+}
+
+QString AddTitleDialog::selectedFormat() const
+{
+    return m_formatCombo ? m_formatCombo->currentData().toString()
+                         : QStringLiteral("DVD");
 }
 
 void AddTitleDialog::buildGenreMenu_()

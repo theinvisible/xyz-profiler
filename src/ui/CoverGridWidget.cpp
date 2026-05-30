@@ -36,14 +36,16 @@ QString firstGenre(const QModelIndex& index)
 
 // Cached placeholder poster — generating the gradient/perforation/text every
 // paint is what makes scrolling stutter, so we render once and reuse.
-QPixmap gridPlaceholder(const QString& title, int year,
-                        const QString& format, qreal dpr)
+// Format is intentionally left empty here: the delegate paints the format badge
+// as an overlay on every tile (real cover or placeholder), so baking it into
+// the placeholder too would show it twice.
+QPixmap gridPlaceholder(const QString& title, int year, qreal dpr)
 {
-    const QString key = QStringLiteral("xpgrid_ph_%1_%2_%3_%4")
-        .arg(title, QString::number(year), format, QString::number(dpr));
+    const QString key = QStringLiteral("xpgrid_ph_%1_%2_%3")
+        .arg(title, QString::number(year), QString::number(dpr));
     QPixmap pm;
     if (!QPixmapCache::find(key, &pm)) {
-        pm = CoverArt::placeholder(title, year, format,
+        pm = CoverArt::placeholder(title, year, QString(),
                                    QSize(kCoverW, kCoverH), true, dpr);
         QPixmapCache::insert(key, pm);
     }
@@ -115,7 +117,7 @@ void CoverDelegate::paint(QPainter* painter,
         real = !cover.isNull();
     }
     if (!real)
-        cover = gridPlaceholder(title, year, format, dpr);
+        cover = gridPlaceholder(title, year, dpr);
 
     // Drop shadow under the cover.
     painter->save();
@@ -131,6 +133,30 @@ void CoverDelegate::paint(QPainter* painter,
     painter->setClipPath(clip);
     painter->drawPixmap(coverRect, cover);
     painter->restore();
+
+    // --- Format badge (bottom-right) -------------------------------------
+    // Painted as an overlay so it shows over real covers too — previously the
+    // format only appeared baked into the gradient placeholder, so titles with
+    // an actual cover image had no format label.
+    {
+        const auto fb = Theme::formatBadge(format);
+        if (!fb.label.isEmpty()) {
+            QFont ff = option.font;
+            ff.setPointSizeF(qMax(7.0, ff.pointSizeF() - 2.0));
+            ff.setBold(true);
+            painter->setFont(ff);
+            const QFontMetrics ffm(ff);
+            const int bw = ffm.horizontalAdvance(fb.label) + 12;
+            const int bh = ffm.height() + 3;
+            const QRect badge(coverRect.right() - bw - 7,
+                              coverRect.bottom() - bh - 9, bw, bh);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(QColor(0, 0, 0, 165));  // legible over any artwork
+            painter->drawRoundedRect(badge, 3, 3);
+            painter->setPen(fb.fg);
+            painter->drawText(badge, Qt::AlignCenter, fb.label);
+        }
+    }
 
     // --- Loan / box-set markers ------------------------------------------
     if (index.data(MovieListModel::IsLoanedRole).toBool()) {

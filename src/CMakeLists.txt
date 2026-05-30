@@ -111,6 +111,8 @@ qt_add_executable(xyz-profiler
     ui/TmdbMatchDialog.cpp
     ui/AddTitleDialog.h
     ui/AddTitleDialog.cpp
+    ui/EditMovieDialog.h
+    ui/EditMovieDialog.cpp
     ui/ImportPreviewDialog.h
     ui/ImportPreviewDialog.cpp
     ui/SettingsDialog.h
@@ -157,7 +159,7 @@ if(WIN32)
     if(WINDEPLOYQT_EXE)
         add_custom_command(TARGET xyz-profiler POST_BUILD
             COMMAND "${WINDEPLOYQT_EXE}"
-                    --no-translations
+                    --translations de,en
                     --no-system-d3d-compiler
                     --no-opengl-sw
                     "$<TARGET_FILE:xyz-profiler>"

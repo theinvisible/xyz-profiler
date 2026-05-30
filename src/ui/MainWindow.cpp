@@ -8,6 +8,7 @@
 #include "ui/AddTitleDialog.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
+#include "ui/EditMovieDialog.h"
 #include "ui/IconFactory.h"
 #include "ui/ImportPreviewDialog.h"
 #include "ui/MovieDetailWidget.h"
@@ -169,6 +170,23 @@ void MainWindow::buildToolBar_()
     m_addBtn->setToolTip(tr("Search TMDb and add a new title to your collection"));
     connect(m_addBtn, &QToolButton::clicked, this, &MainWindow::showAddTitleDialog_);
     tb->addWidget(m_addBtn);
+
+    // Edit / delete the selected title (disabled until something is selected).
+    m_editBtn = new QToolButton;
+    m_editBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_editBtn->setToolTip(tr("Edit the selected title"));
+    m_editBtn->setEnabled(false);
+    connect(m_editBtn, &QToolButton::clicked, this,
+            [this] { showEditDialog_(m_controller->selectedId()); });
+    tb->addWidget(m_editBtn);
+
+    m_deleteBtn = new QToolButton;
+    m_deleteBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_deleteBtn->setToolTip(tr("Delete the selected title"));
+    m_deleteBtn->setEnabled(false);
+    connect(m_deleteBtn, &QToolButton::clicked, this,
+            [this] { confirmDeleteMovie_(m_controller->selectedId()); });
+    tb->addWidget(m_deleteBtn);
 
     tb->addWidget(spacer());
 
@@ -356,6 +374,26 @@ void MainWindow::buildCentralWidget_()
 
     connect(m_detailPane, &MovieDetailWidget::tmdbSearchRequested,
             m_controller, &LibraryController::searchSelectedOnTmdb);
+
+    // Right-click context menu (Edit / Delete) on both views.
+    m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_treeView, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& pos) {
+        const QModelIndex idx = m_treeView->indexAt(pos);
+        if (!idx.isValid()) return;
+        const auto srcIdx = m_treeSortProxy->mapToSource(idx);
+        const QString id = m_controller->treeModel()->movieIdAtIndex(srcIdx);
+        showMovieContextMenu_(id, m_treeView->viewport()->mapToGlobal(pos));
+    });
+
+    m_coverGrid->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(m_coverGrid, &QWidget::customContextMenuRequested, this,
+            [this](const QPoint& pos) {
+        const QModelIndex idx = m_coverGrid->indexAt(pos);
+        if (!idx.isValid()) return;
+        const QString id = idx.data(MovieListModel::IdRole).toString();
+        showMovieContextMenu_(id, m_coverGrid->viewport()->mapToGlobal(pos));
+    });
 }
 
 void MainWindow::buildStatusBar_()
@@ -465,6 +503,10 @@ void MainWindow::refreshIcons_()
 {
     const Palette& p = Theme::current();
     m_addBtn->setIcon(IconFactory::icon(QStringLiteral("add"), p.accentFg, 17));
+    if (m_editBtn)
+        m_editBtn->setIcon(IconFactory::icon(QStringLiteral("edit"), p.text2, 16));
+    if (m_deleteBtn)
+        m_deleteBtn->setIcon(IconFactory::icon(QStringLiteral("trash"), p.text2, 16));
     if (m_searchIcon)
         m_searchIcon->setIcon(IconFactory::icon(QStringLiteral("search"), p.text3, 16));
     m_settingsBtn->setIcon(IconFactory::icon(QStringLiteral("settings"), p.text2, 16));
@@ -494,6 +536,10 @@ void MainWindow::onMoviesChanged_()
 
 void MainWindow::onSelectionChanged_()
 {
+    const bool hasSel = m_controller->hasSelection();
+    if (m_editBtn)   m_editBtn->setEnabled(hasSel);
+    if (m_deleteBtn) m_deleteBtn->setEnabled(hasSel);
+
     if (m_controller->hasSelection()) {
         const Movie& m = m_controller->selectedMovie();
         // Status-bar text is cheap — update it now for instant feedback. The
@@ -640,7 +686,58 @@ void MainWindow::showAddTitleDialog_()
     }
     AddTitleDialog dlg(m_tmdb, this);
     if (dlg.exec() == QDialog::Accepted && dlg.selectedTmdbId() > 0)
-        m_controller->addMovieFromTmdb(dlg.selectedTmdbId(), dlg.selectedPosterPath());
+        m_controller->addMovieFromTmdb(dlg.selectedTmdbId(), dlg.selectedFormat(),
+                                       dlg.selectedPosterPath());
+}
+
+void MainWindow::showEditDialog_(const QString& movieId)
+{
+    if (movieId.isEmpty()) return;
+    // Edit a full copy so untouched fields (cast, discs, box set, tmdbId) survive.
+    if (m_controller->selectedId() != movieId)
+        m_controller->selectMovie(movieId);
+    if (!m_controller->hasSelection()) return;
+
+    EditMovieDialog dlg(m_controller->selectedMovie(), this);
+    if (dlg.exec() == QDialog::Accepted)
+        m_controller->updateMovie(dlg.editedMovie());
+}
+
+void MainWindow::confirmDeleteMovie_(const QString& movieId)
+{
+    if (movieId.isEmpty()) return;
+
+    // Resolve the title for the confirmation text.
+    QString title = movieId;
+    if (const Movie* m = m_controller->listModel()->find(movieId))
+        title = m->title;
+    else if (m_controller->selectedId() == movieId)
+        title = m_controller->selectedMovie().title;
+
+    const auto choice = QMessageBox::warning(
+        this, tr("Delete Title"),
+        tr("Delete \"%1\" from your collection?\nThis cannot be undone.").arg(title),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (choice == QMessageBox::Yes)
+        m_controller->deleteMovie(movieId);
+}
+
+void MainWindow::showMovieContextMenu_(const QString& movieId, const QPoint& globalPos)
+{
+    if (movieId.isEmpty()) return;
+    // Target the right-clicked row for both the menu actions and the views.
+    if (m_controller->selectedId() != movieId)
+        m_controller->selectMovie(movieId);
+
+    const Palette& p = Theme::current();
+    QMenu menu(this);
+    QAction* editAct = menu.addAction(
+        IconFactory::icon(QStringLiteral("edit"), p.text2, 16), tr("Edit…"));
+    QAction* delAct = menu.addAction(
+        IconFactory::icon(QStringLiteral("trash"), p.text2, 16), tr("Delete…"));
+    QAction* chosen = menu.exec(globalPos);
+    if (chosen == editAct)      showEditDialog_(movieId);
+    else if (chosen == delAct)  confirmDeleteMovie_(movieId);
 }
 
 void MainWindow::showSettingsDialog_()

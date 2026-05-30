@@ -33,6 +33,11 @@ public:
     // Insert (or replace by id) a single movie. Returns true on success.
     bool insert(const Movie& movie);
 
+    // Delete a movie and all its child rows by primary id. Child tables drop
+    // via ON DELETE CASCADE; the FTS5 row is removed explicitly (virtual tables
+    // don't cascade). Returns true on success (including when no row matched).
+    bool remove(const QString& id);
+
     // Insert many movies inside a single transaction. Faster for imports.
     // Returns true on success; on failure the transaction is rolled back
     // and the database is unchanged.

@@ -534,6 +534,38 @@ bool MovieRepository::insert(const Movie& movie)
         && insertFts_(movie);
 }
 
+bool MovieRepository::remove(const QString& id)
+{
+    auto conn = m_db.handle();
+    if (!conn.transaction()) {
+        m_lastError = conn.lastError().text();
+        return false;
+    }
+    QSqlQuery q(conn);
+    // Child tables cascade off the movies row; movies_fts is virtual and does
+    // not, so delete it explicitly (same as deleteChildren does for upserts).
+    q.prepare(QStringLiteral("DELETE FROM movies_fts WHERE movie_id = ?"));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        conn.rollback();
+        return false;
+    }
+    q.prepare(QStringLiteral("DELETE FROM movies WHERE id = ?"));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        conn.rollback();
+        return false;
+    }
+    if (!conn.commit()) {
+        m_lastError = conn.lastError().text();
+        conn.rollback();
+        return false;
+    }
+    return true;
+}
+
 bool MovieRepository::bulkInsert(const QList<Movie>& movies)
 {
     auto conn = m_db.handle();

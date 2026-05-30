@@ -49,6 +49,9 @@ private:
     void toggleTheme_();
     void showImportDialog_();
     void showAddTitleDialog_();
+    void showEditDialog_(const QString& movieId);
+    void confirmDeleteMovie_(const QString& movieId);
+    void showMovieContextMenu_(const QString& movieId, const QPoint& globalPos);
     void showSettingsDialog_();
     void showAbout_();
     void setupTreeColumnVisibility_();
@@ -69,6 +72,8 @@ private:
 
     // Toolbar
     QToolButton* m_addBtn      = nullptr;
+    QToolButton* m_editBtn     = nullptr;
+    QToolButton* m_deleteBtn   = nullptr;
     QLineEdit*   m_searchField = nullptr;
     QAction*     m_searchIcon  = nullptr;
     QToolButton* m_listBtn     = nullptr;

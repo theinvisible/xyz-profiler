@@ -33,6 +33,8 @@ public:
 
     int     selectedTmdbId() const { return m_selectedTmdbId; }
     QString selectedPosterPath() const { return m_selectedPosterPath; }
+    // Disc format the user picked for the new entry ("DVD" / "BluRay" / "UHD").
+    QString selectedFormat() const;
 
 private:
     void buildUi_();
@@ -59,6 +61,7 @@ private:
 
     QLabel*      m_statusLabel = nullptr;
     QListWidget* m_listWidget  = nullptr;
+    QComboBox*   m_formatCombo = nullptr;
     QPushButton* m_addBtn      = nullptr;
 
     QList<TmdbCandidate> m_candidates;
