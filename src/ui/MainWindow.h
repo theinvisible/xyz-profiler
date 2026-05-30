@@ -8,6 +8,7 @@ class QLabel;
 class QLineEdit;
 class QProgressDialog;
 class QSortFilterProxyModel;
+class QSplitter;
 class QStackedWidget;
 class QToolButton;
 class QTreeView;
@@ -43,9 +44,10 @@ private:
     void onImportStateChanged_();
     void onTmdbStateChanged_();
     void switchView_(const QString& mode);
-    void applySort_(int index);
+    void applySavedSort_();
     void toggleTheme_();
     void showImportDialog_();
+    void showAddTitleDialog_();
     void showSettingsDialog_();
     void showAbout_();
     void setupTreeColumnVisibility_();
@@ -65,11 +67,9 @@ private:
     QAction* m_actAbout    = nullptr;
 
     // Toolbar
-    QToolButton* m_importBtn   = nullptr;
+    QToolButton* m_addBtn      = nullptr;
     QLineEdit*   m_searchField = nullptr;
     QAction*     m_searchIcon  = nullptr;
-    QLabel*      m_sortIcon    = nullptr;
-    QComboBox*   m_sortCombo   = nullptr;
     QToolButton* m_listBtn     = nullptr;
     QToolButton* m_gridBtn     = nullptr;
     QToolButton* m_themeBtn    = nullptr;
@@ -82,12 +82,14 @@ private:
     QLabel* m_statusLabel    = nullptr;
 
     // Central
+    QSplitter*             m_splitter        = nullptr;
     QStackedWidget*        m_viewStack       = nullptr;
     CoverGridWidget*       m_coverGrid       = nullptr;
     QSortFilterProxyModel* m_gridFilterProxy = nullptr;
     QTreeView*             m_treeView        = nullptr;
     QSortFilterProxyModel* m_treeSortProxy   = nullptr;
     MovieDetailWidget*     m_detailPane      = nullptr;
+    bool                   m_restoringSort   = false;
 
     // Progress
     QProgressDialog*       m_progressDlg     = nullptr;

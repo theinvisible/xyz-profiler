@@ -26,6 +26,20 @@ void MovieSortProxyModel::toggleSort(const QString& roleName)
     emit sortChanged();
 }
 
+void MovieSortProxyModel::sortByRole(const QString& roleName, bool descending)
+{
+    ensureRoleCache_();
+    auto it = m_roleIdByName.constFind(roleName);
+    if (it == m_roleIdByName.constEnd()) return;
+
+    m_sortRoleName = roleName;
+    m_descending   = descending;
+    setSortRole(it.value());
+    invalidate();
+    sort(0, descending ? Qt::DescendingOrder : Qt::AscendingOrder);
+    emit sortChanged();
+}
+
 void MovieSortProxyModel::clearSort()
 {
     m_sortRoleName.clear();

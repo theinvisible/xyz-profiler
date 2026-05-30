@@ -18,6 +18,9 @@ public:
     bool    sortDescending() const { return m_descending; }
 
     void toggleSort(const QString& roleName);
+    // Sort explicitly by role + direction (used to mirror the list view's
+    // header sort onto the cover grid, and to restore the saved sort on start).
+    void sortByRole(const QString& roleName, bool descending);
     void clearSort();
 
 signals:

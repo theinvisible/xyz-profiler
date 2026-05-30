@@ -5,6 +5,7 @@
 #include "models/MovieListModel.h"
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
+#include "ui/AddTitleDialog.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
 #include "ui/IconFactory.h"
@@ -18,6 +19,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QByteArray>
 #include <QComboBox>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -38,6 +40,25 @@
 #include <QVBoxLayout>
 
 namespace xyz {
+namespace {
+
+// Map a tree-view column to the cover grid's sort role name (see
+// MovieListModel::roleNames()). Columns the grid can't represent fall back to
+// title, so both views stay roughly in sync.
+QString gridRoleForColumn(int column)
+{
+    switch (column) {
+    case MovieTreeModel::Year:     return QStringLiteral("year");
+    case MovieTreeModel::Runtime:  return QStringLiteral("runtime");
+    case MovieTreeModel::Format:   return QStringLiteral("format");
+    case MovieTreeModel::Rating:   return QStringLiteral("ratingValue");
+    case MovieTreeModel::Genres:   return QStringLiteral("genresJoined");
+    case MovieTreeModel::Director: return QStringLiteral("directorName");
+    default:                       return QStringLiteral("title");
+    }
+}
+
+} // namespace
 
 MainWindow::MainWindow(LibraryController* controller,
                        SettingsController* settings,
@@ -60,7 +81,7 @@ MainWindow::MainWindow(LibraryController* controller,
 
     refreshIcons_();
     switchView_(m_settings->viewMode());
-    applySort_(0);
+    applySavedSort_();
     onMoviesChanged_();
     onSelectionChanged_();
 }
@@ -125,14 +146,14 @@ void MainWindow::buildToolBar_()
         return w;
     };
 
-    // Primary action.
-    m_importBtn = new QToolButton;
-    m_importBtn->setObjectName(QStringLiteral("tbPrimary"));
-    m_importBtn->setText(tr("Import…"));
-    m_importBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
-    m_importBtn->setToolTip(tr("Import a DVD Profiler Collection.xml"));
-    connect(m_importBtn, &QToolButton::clicked, this, &MainWindow::showImportDialog_);
-    tb->addWidget(m_importBtn);
+    // Primary action: add a new title via TMDb online search.
+    m_addBtn = new QToolButton;
+    m_addBtn->setObjectName(QStringLiteral("tbPrimary"));
+    m_addBtn->setText(tr("Add Title…"));
+    m_addBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_addBtn->setToolTip(tr("Search TMDb and add a new title to your collection"));
+    connect(m_addBtn, &QToolButton::clicked, this, &MainWindow::showAddTitleDialog_);
+    tb->addWidget(m_addBtn);
 
     tb->addWidget(spacer());
 
@@ -151,23 +172,6 @@ void MainWindow::buildToolBar_()
     tb->addWidget(m_searchField);
 
     tb->addWidget(spacer());
-
-    // Sort.
-    auto* sortWrap = new QWidget;
-    sortWrap->setObjectName(QStringLiteral("sortWrap"));
-    auto* sortLay = new QHBoxLayout(sortWrap);
-    sortLay->setContentsMargins(10, 0, 4, 0);
-    sortLay->setSpacing(6);
-    m_sortIcon = new QLabel;
-    sortLay->addWidget(m_sortIcon);
-    m_sortCombo = new QComboBox;
-    m_sortCombo->addItem(tr("Title A–Z"));
-    m_sortCombo->addItem(tr("Year"));
-    m_sortCombo->addItem(tr("Rating"));
-    m_sortCombo->addItem(tr("Recently added"));
-    connect(m_sortCombo, &QComboBox::currentIndexChanged, this, &MainWindow::applySort_);
-    sortLay->addWidget(m_sortCombo);
-    tb->addWidget(sortWrap);
 
     // Segmented list/grid toggle.
     auto* seg = new QWidget;
@@ -210,7 +214,7 @@ void MainWindow::buildToolBar_()
 // ---------------------------------------------------------------------------
 void MainWindow::buildCentralWidget_()
 {
-    auto* splitter = new QSplitter(Qt::Horizontal);
+    m_splitter = new QSplitter(Qt::Horizontal);
     m_viewStack = new QStackedWidget;
 
     // ---- Cover grid (index 0) — filter out box-set children ----------------
@@ -282,19 +286,41 @@ void MainWindow::buildCentralWidget_()
     hdr->setSectionResizeMode(MovieTreeModel::Director, QHeaderView::Interactive);
     hdr->resizeSection(MovieTreeModel::Director, 160);
 
+    // Persist the sort the user sets via the header and mirror it onto the
+    // cover grid, so both views share one (restored-on-startup) sort order.
+    connect(m_treeView->header(), &QHeaderView::sortIndicatorChanged, this,
+            [this](int column, Qt::SortOrder order) {
+        if (m_restoringSort) return;
+        m_settings->setTableSortRole(QString::number(column));
+        m_settings->setTableSortDescending(order == Qt::DescendingOrder);
+        m_controller->sortProxy()->sortByRole(
+            gridRoleForColumn(column), order == Qt::DescendingOrder);
+    });
+
     m_viewStack->addWidget(m_treeView);
 
-    splitter->addWidget(m_viewStack);
+    m_splitter->addWidget(m_viewStack);
 
     // ---- Detail pane (right) -----------------------------------------------
     m_detailPane = new MovieDetailWidget;
-    splitter->addWidget(m_detailPane);
+    m_splitter->addWidget(m_detailPane);
 
-    splitter->setStretchFactor(0, 1);
-    splitter->setStretchFactor(1, 0);
-    splitter->setSizes({940, 462});
-    splitter->setChildrenCollapsible(false);
-    setCentralWidget(splitter);
+    m_splitter->setStretchFactor(0, 1);
+    m_splitter->setStretchFactor(1, 0);
+    m_splitter->setSizes({940, 462});
+    m_splitter->setChildrenCollapsible(false);
+    setCentralWidget(m_splitter);
+
+    // The detail pane is resizable now (no fixed width) — restore the saved
+    // splitter position and persist it whenever the user drags the handle.
+    const QByteArray splitState = QByteArray::fromBase64(
+        m_settings->detailSplitterState().toLatin1());
+    if (!splitState.isEmpty())
+        m_splitter->restoreState(splitState);
+    connect(m_splitter, &QSplitter::splitterMoved, this, [this](int, int) {
+        m_settings->setDetailSplitterState(
+            QString::fromLatin1(m_splitter->saveState().toBase64()));
+    });
 
     // ---- Signals -----------------------------------------------------------
     connect(m_coverGrid, &CoverGridWidget::movieClicked,
@@ -405,12 +431,9 @@ void MainWindow::connectSettings_()
 void MainWindow::refreshIcons_()
 {
     const Palette& p = Theme::current();
-    m_importBtn->setIcon(IconFactory::icon(QStringLiteral("add"), p.accentFg, 17));
+    m_addBtn->setIcon(IconFactory::icon(QStringLiteral("add"), p.accentFg, 17));
     if (m_searchIcon)
         m_searchIcon->setIcon(IconFactory::icon(QStringLiteral("search"), p.text3, 16));
-    if (m_sortIcon)
-        m_sortIcon->setPixmap(IconFactory::pixmap(QStringLiteral("sort"), p.text2, 15,
-                                                  1.6, devicePixelRatioF()));
     m_settingsBtn->setIcon(IconFactory::icon(QStringLiteral("settings"), p.text2, 16));
     m_themeBtn->setIcon(IconFactory::icon(
         Theme::isDark() ? QStringLiteral("sun") : QStringLiteral("moon"), p.text2, 16));
@@ -531,17 +554,22 @@ void MainWindow::switchView_(const QString& mode)
                                          !isList ? p.accentFg : p.text2, 16));
 }
 
-void MainWindow::applySort_(int index)
+void MainWindow::applySavedSort_()
 {
-    int col = MovieTreeModel::Title;
-    Qt::SortOrder order = Qt::AscendingOrder;
-    switch (index) {
-    case 1: col = MovieTreeModel::Year;         order = Qt::DescendingOrder; break;
-    case 2: col = MovieTreeModel::Rating;       order = Qt::DescendingOrder; break;
-    case 3: col = MovieTreeModel::PurchaseDate; order = Qt::DescendingOrder; break;
-    default: col = MovieTreeModel::Title;        order = Qt::AscendingOrder; break;
-    }
+    bool ok = false;
+    int col = m_settings->tableSortRole().toInt(&ok);
+    if (!ok || col < 0 || col >= MovieTreeModel::ColumnCount)
+        col = MovieTreeModel::Title;
+    const bool desc = m_settings->tableSortDescending();
+    const Qt::SortOrder order = desc ? Qt::DescendingOrder : Qt::AscendingOrder;
+
+    // Restore without re-persisting (the header signal would fire otherwise).
+    m_restoringSort = true;
     m_treeView->sortByColumn(col, order);
+    m_treeView->header()->setSortIndicator(col, order);
+    m_restoringSort = false;
+
+    m_controller->sortProxy()->sortByRole(gridRoleForColumn(col), desc);
 }
 
 void MainWindow::toggleTheme_()
@@ -558,6 +586,23 @@ void MainWindow::showImportDialog_()
         {}, tr("DVD Profiler XML (Collection.xml *.xml)"));
     if (file.isEmpty()) return;
     m_controller->beginImport(file, m_settings->imagesDirectory());
+}
+
+void MainWindow::showAddTitleDialog_()
+{
+    if (!m_controller->libraryOpen()) {
+        QMessageBox::information(this, tr("Add a Title"),
+            tr("Open a library before adding titles."));
+        return;
+    }
+    if (!m_tmdb || !m_tmdb->hasApiKey()) {
+        QMessageBox::information(this, tr("Add a Title"),
+            tr("TMDb is not configured. Set your TMDb API key in Settings first."));
+        return;
+    }
+    AddTitleDialog dlg(m_tmdb, this);
+    if (dlg.exec() == QDialog::Accepted && dlg.selectedTmdbId() > 0)
+        m_controller->addMovieFromTmdb(dlg.selectedTmdbId(), dlg.selectedPosterPath());
 }
 
 void MainWindow::showSettingsDialog_()

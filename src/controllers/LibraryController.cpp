@@ -10,6 +10,7 @@
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -386,6 +387,61 @@ void LibraryController::setTmdbClient(TmdbClient* client)
         else
             setStatus_(tr("TMDb search failed: %1").arg(err));
     });
+
+    // Shared movie-detail handler — only acts when an "add title" fetch is
+    // pending (m_addingTmdbId != 0); other getMovie() callers are unaffected.
+    connect(m_tmdb, &TmdbClient::movieFinished, this,
+            [this](const TmdbMovieDetails& d, const QString& err)
+    {
+        if (m_addingTmdbId == 0) return;
+        const int     reqId  = m_addingTmdbId;
+        const QString poster = m_addingPosterPath;
+        m_addingTmdbId = 0;
+        m_addingPosterPath.clear();
+
+        if (!err.isEmpty()) {
+            setStatus_(tr("Could not fetch title from TMDb: %1").arg(err));
+            return;
+        }
+        if (!m_repo) return;
+
+        const QString newId = QStringLiteral("tmdb%1").arg(d.id > 0 ? d.id : reqId);
+        if (auto existing = m_repo->getById(newId); existing.has_value()) {
+            refresh();
+            selectMovie(newId);
+            setStatus_(tr("\"%1\" is already in your collection").arg(existing->title));
+            return;
+        }
+
+        Movie m;
+        m.id                 = newId;
+        m.title              = d.title;
+        m.originalTitle      = d.originalTitle;
+        m.overview           = d.overview;
+        m.genres             = d.genres;
+        m.studios            = d.productionCompanies;
+        m.countriesOfOrigin  = d.productionCountries;
+        m.runningTimeMinutes = d.runtime;
+        m.tmdbId             = d.id;
+        m.membership.type    = QStringLiteral("Owned");
+        m.profileTimestamp   = QDateTime::currentDateTime();
+        m.lastEdited         = m.profileTimestamp;
+        if (d.releaseDate.size() >= 4) {
+            m.productionYear = d.releaseDate.left(4).toInt();
+            m.releaseDate    = QDate::fromString(d.releaseDate, Qt::ISODate);
+        }
+
+        if (!m_repo->insert(m)) {
+            setStatus_(tr("Failed to add title: %1").arg(m_repo->lastError()));
+            return;
+        }
+        refresh();
+        selectMovie(newId);
+        setStatus_(tr("Added \"%1\"").arg(m.title));
+        if (!poster.isEmpty())
+            downloadTmdbPoster_(newId, poster);
+    });
+
     emit tmdbStateChanged();
 }
 
@@ -442,6 +498,20 @@ void LibraryController::pickTmdbMatch(int tmdbId)
 
     if (!posterPath.isEmpty() && m_tmdb)
         downloadTmdbPoster_(m.id, posterPath);
+}
+
+void LibraryController::addMovieFromTmdb(int tmdbId, const QString& posterPath)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (tmdbId <= 0) return;
+    if (!m_tmdb || !m_tmdb->hasApiKey()) {
+        setStatus_(tr("TMDb is not configured (set TMDB_API_KEY)"));
+        return;
+    }
+    m_addingTmdbId     = tmdbId;
+    m_addingPosterPath = posterPath;
+    setStatus_(tr("Adding title from TMDb…"));
+    m_tmdb->getMovie(tmdbId);
 }
 
 void LibraryController::clearTmdbCandidates()

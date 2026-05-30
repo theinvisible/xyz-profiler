@@ -6,9 +6,9 @@
 
 namespace xyz {
 
-// One hit from /search/movie. Just the columns we need for the match
-// dialog — the full detail object is fetched separately via /movie/{id}
-// once the user picks a candidate.
+// One hit from /search/movie or /discover/movie. Just the columns we need for
+// the candidate lists — the full detail object is fetched separately via
+// /movie/{id} once the user picks a candidate.
 struct TmdbCandidate {
     int     id = 0;                    // TMDb's numeric movie id
     QString title;
@@ -21,6 +21,31 @@ struct TmdbCandidate {
     double  popularity = 0.0;
     double  voteAverage = 0.0;
     int     voteCount = 0;
+    QList<int> genreIds;               // TMDb genre ids (from search/discover)
+};
+
+// A movie genre — TMDb's stable numeric id paired with its name.
+struct TmdbGenre {
+    int     id = 0;
+    QString name;
+};
+
+// Rich "add a title" search/filter criteria. When `title` is non-empty the
+// client uses /search/movie (free-text match) and applies the remaining
+// filters client-side; when it is empty it uses /discover/movie with every
+// filter applied server-side. `person` is resolved to an id via /search/person.
+struct TmdbDiscoverQuery {
+    QString    title;
+    int        yearMin = 0;
+    int        yearMax = 0;
+    QList<int> genreIds;
+    QString    person;
+    double     voteAverageMin = 0.0;
+    QString    originalLanguage;       // ISO 639-1, empty = any
+    QString    originCountry;          // ISO 3166-1, empty = any
+    int        runtimeMin = 0;         // minutes
+    int        runtimeMax = 0;
+    QString    sortBy = QStringLiteral("popularity.desc");
 };
 
 // Detail response from /movie/{id}. Superset of TmdbCandidate fields plus

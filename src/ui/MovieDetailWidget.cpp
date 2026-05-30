@@ -140,7 +140,10 @@ MovieDetailWidget::MovieDetailWidget(QWidget* parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("detailPane"));
-    setFixedWidth(462);
+    // Resizable via the splitter — keep a sane minimum so the cover + text
+    // column never collapse. The default width is set through the splitter
+    // sizes / persisted splitter state in MainWindow.
+    setMinimumWidth(360);
     buildUi_();
     clearSelection();
 }

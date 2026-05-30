@@ -56,6 +56,15 @@ public:
     void getMovie(int tmdbId);
     void fetchConfiguration();
 
+    // Rich "add a title" search. See TmdbDiscoverQuery: routes to /search/movie
+    // (with client-side filtering) when a title is given, otherwise to
+    // /discover/movie with every filter applied server-side.
+    void discover(const TmdbDiscoverQuery& query);
+
+    // Standard TMDb movie genres (stable ids + names). Lets the add-title
+    // filter offer a genre picker without an extra network round-trip.
+    static const QList<TmdbGenre>& movieGenres();
+
 signals:
     void searchFinished(const QString& title, int year,
                         const QList<TmdbCandidate>& candidates,
@@ -64,10 +73,13 @@ signals:
                        const QString& errorString);
     void configurationFetched(const TmdbImageConfig& config,
                               const QString& errorString);
+    void discoverFinished(const QList<TmdbCandidate>& candidates,
+                          const QString& errorString);
 
 private:
     QNetworkReply* get_(const QString& path, const QUrlQuery& extra) const;
     void emitSearchError_(const QString& title, int year, const QString& err);
+    void runDiscover_(const TmdbDiscoverQuery& query, int personId);
 
     QString                 m_apiKey;
     QNetworkAccessManager*  m_network;

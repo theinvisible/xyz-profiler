@@ -23,6 +23,7 @@ public:
     QString visibleTableColumns()  const { return m_visibleTableColumns; }
     QString tableSortRole()        const { return m_tableSortRole; }
     bool    tableSortDescending()  const { return m_tableSortDescending; }
+    QString detailSplitterState()  const { return m_detailSplitterState; }
 
     void setTmdbApiKey(const QString& key);
     void setImagesDirectory(const QString& dir);
@@ -31,6 +32,8 @@ public:
     void setVisibleTableColumns(const QString& columns);
     void setTableSortRole(const QString& role);
     void setTableSortDescending(bool desc);
+    // Base64-encoded QSplitter::saveState() for the views/detail splitter.
+    void setDetailSplitterState(const QString& base64);
 
     static QString resolveTmdbApiKey(const SettingsController& settings);
 
@@ -54,6 +57,7 @@ private:
     QString    m_visibleTableColumns;
     QString    m_tableSortRole;
     bool       m_tableSortDescending = false;
+    QString    m_detailSplitterState;
 };
 
 } // namespace xyz

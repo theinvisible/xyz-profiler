@@ -80,6 +80,9 @@ public:
     void searchSelectedOnTmdb();
     void pickTmdbMatch(int tmdbId);
     void clearTmdbCandidates();
+    // Create a brand-new collection entry from a TMDb movie (the "add title"
+    // flow): fetches full details, inserts, selects it, and downloads the poster.
+    void addMovieFromTmdb(int tmdbId, const QString& posterPath = {});
 
 signals:
     void libraryChanged();
@@ -146,6 +149,11 @@ private:
     QString                         m_tmdbSearchError;
     QString                         m_tmdbSearchingForId;
     QList<TmdbCandidate>            m_tmdbCandidates;
+
+    // "Add title" flow: set while a getMovie() fetch for a new entry is in
+    // flight, so the shared movieFinished handler knows to create a Movie.
+    int                             m_addingTmdbId = 0;
+    QString                         m_addingPosterPath;
 };
 
 } // namespace xyz

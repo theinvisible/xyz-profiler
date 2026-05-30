@@ -15,6 +15,7 @@ constexpr auto kKeyViewMode     = "ui/view_mode";
 constexpr auto kKeyTableCols    = "ui/table_columns";
 constexpr auto kKeyTableSortRole = "ui/table_sort_role";
 constexpr auto kKeyTableSortDesc = "ui/table_sort_desc";
+constexpr auto kKeySplitterState = "ui/detail_splitter_state";
 
 constexpr auto kDefaultColumns = "title;year;runtime;format;ratingValue;directorName";
 
@@ -52,6 +53,7 @@ void SettingsController::load_()
                                            QString::fromLatin1(kDefaultColumns)).toString();
     m_tableSortRole   = m_store->value(QLatin1String(kKeyTableSortRole)).toString();
     m_tableSortDescending = m_store->value(QLatin1String(kKeyTableSortDesc), false).toBool();
+    m_detailSplitterState = m_store->value(QLatin1String(kKeySplitterState)).toString();
 }
 
 void SettingsController::write_(const QString& key, const QVariant& value)
@@ -123,6 +125,14 @@ void SettingsController::setTableSortDescending(bool desc)
     m_tableSortDescending = desc;
     write_(QString::fromLatin1(kKeyTableSortDesc), m_tableSortDescending);
     emit tableSortChanged();
+}
+
+void SettingsController::setDetailSplitterState(const QString& base64)
+{
+    // Persisted-only (no live listeners), so this intentionally emits no signal.
+    if (m_detailSplitterState == base64) return;
+    m_detailSplitterState = base64;
+    write_(QString::fromLatin1(kKeySplitterState), m_detailSplitterState);
 }
 
 QString SettingsController::resolveTmdbApiKey(const SettingsController& settings)
