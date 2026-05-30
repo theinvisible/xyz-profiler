@@ -7,6 +7,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmapCache>
+#include <QScrollBar>
 
 namespace xyz {
 
@@ -29,6 +30,22 @@ QString firstGenre(const QModelIndex& index)
     const QString g = index.data(MovieListModel::GenresJoinedRole).toString();
     const int comma = g.indexOf(QChar(u','));
     return comma >= 0 ? g.left(comma).trimmed() : g;
+}
+
+// Cached placeholder poster — generating the gradient/perforation/text every
+// paint is what makes scrolling stutter, so we render once and reuse.
+QPixmap gridPlaceholder(const QString& title, int year,
+                        const QString& format, qreal dpr)
+{
+    const QString key = QStringLiteral("xpgrid_ph_%1_%2_%3_%4")
+        .arg(title, QString::number(year), format, QString::number(dpr));
+    QPixmap pm;
+    if (!QPixmapCache::find(key, &pm)) {
+        pm = CoverArt::placeholder(title, year, format,
+                                   QSize(kCoverW, kCoverH), true, dpr);
+        QPixmapCache::insert(key, pm);
+    }
+    return pm;
 }
 
 } // namespace
@@ -95,8 +112,7 @@ void CoverDelegate::paint(QPainter* painter,
         real = !cover.isNull();
     }
     if (!real)
-        cover = CoverArt::placeholder(title, year, format,
-                                      QSize(kCoverW, kCoverH), true, dpr);
+        cover = gridPlaceholder(title, year, format, dpr);
 
     // Drop shadow under the cover.
     painter->save();
@@ -146,17 +162,24 @@ void CoverDelegate::paint(QPainter* painter,
     const QFontMetrics tfm(titleFont);
     painter->setPen(pal.text);
 
-    // Up to two title lines.
+    // Up to two title lines — greedy word wrap (cheap, no per-char scan).
     QString l1 = title, l2;
     if (tfm.horizontalAdvance(title) > metaW) {
-        int split = title.length();
-        for (int i = 1; i < title.length(); ++i) {
-            if (tfm.horizontalAdvance(title.left(i)) > metaW) { split = i - 1; break; }
+        const QStringList words = title.split(QChar(u' '), Qt::SkipEmptyParts);
+        QString cur;
+        int i = 0;
+        for (; i < words.size(); ++i) {
+            const QString trial = cur.isEmpty() ? words[i]
+                                                : cur + QChar(u' ') + words[i];
+            if (!cur.isEmpty() && tfm.horizontalAdvance(trial) > metaW) break;
+            cur = trial;
         }
-        const int sp = title.lastIndexOf(QChar(u' '), split);
-        if (sp > 0) split = sp;
-        l1 = title.left(split).trimmed();
-        l2 = tfm.elidedText(title.mid(split).trimmed(), Qt::ElideRight, metaW);
+        l1 = cur.isEmpty() ? title : cur;
+        if (tfm.horizontalAdvance(l1) > metaW)
+            l1 = tfm.elidedText(l1, Qt::ElideRight, metaW);
+        if (i < words.size())
+            l2 = tfm.elidedText(QStringList(words.mid(i)).join(QChar(u' ')),
+                                Qt::ElideRight, metaW);
     }
     int ty = cell.top() + kMetaTop;
     painter->drawText(QRect(metaLeft, ty, metaW, tfm.height()),
@@ -216,6 +239,16 @@ CoverGridWidget::CoverGridWidget(QWidget* parent)
     setSelectionMode(QAbstractItemView::SingleSelection);
     setMouseTracking(true);   // enable hover state
     setSpacing(10);
+
+    // Smooth pixel scrolling instead of the jumpy item-at-a-time default.
+    setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    verticalScrollBar()->setSingleStep(24);
+
+    // Keep several screenfuls of rendered tiles cached so scrolling/hover
+    // never re-renders a visible cover or placeholder (default 10 MB is too
+    // small for a grid of posters).
+    if (QPixmapCache::cacheLimit() < 64 * 1024)
+        QPixmapCache::setCacheLimit(64 * 1024);
 
     setEditTriggers(QAbstractItemView::NoEditTriggers);
     setFrameShape(QFrame::NoFrame);
