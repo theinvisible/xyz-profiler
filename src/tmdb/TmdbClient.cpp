@@ -271,6 +271,37 @@ void TmdbClient::search(const QString& title, int year)
     });
 }
 
+void TmdbClient::searchFor(quint64 requestId, const QString& title, int year)
+{
+    if (!hasApiKey()) {
+        emit searchForFinished(requestId, {}, tr("TMDB_API_KEY is not configured"));
+        return;
+    }
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("query"), title);
+    q.addQueryItem(QStringLiteral("include_adult"), QStringLiteral("false"));
+    q.addQueryItem(QStringLiteral("language"), m_language);
+    if (year > 0) {
+        q.addQueryItem(QStringLiteral("year"), QString::number(year));
+    }
+    auto* reply = get_(QStringLiteral("/search/movie"), q);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, requestId]() {
+        reply->deleteLater();
+        const QString err = replyErrorString(reply);
+        if (!err.isEmpty()) {
+            emit searchForFinished(requestId, {}, err);
+            return;
+        }
+        const auto doc  = QJsonDocument::fromJson(reply->readAll());
+        const auto root = doc.object();
+        QList<TmdbCandidate> hits;
+        for (const auto& v : root.value(QLatin1String("results")).toArray()) {
+            hits << parseCandidate(v.toObject());
+        }
+        emit searchForFinished(requestId, hits, {});
+    });
+}
+
 void TmdbClient::getMovie(int tmdbId)
 {
     if (!hasApiKey()) {

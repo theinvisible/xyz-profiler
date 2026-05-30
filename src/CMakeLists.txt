@@ -111,6 +111,8 @@ qt_add_executable(xyz-profiler
     ui/TmdbMatchDialog.cpp
     ui/AddTitleDialog.h
     ui/AddTitleDialog.cpp
+    ui/BulkTmdbMatchDialog.h
+    ui/BulkTmdbMatchDialog.cpp
     ui/EditMovieDialog.h
     ui/EditMovieDialog.cpp
     ui/ImportPreviewDialog.h

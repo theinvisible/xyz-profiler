@@ -18,6 +18,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPromise>
+#include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QUrl>
@@ -45,6 +46,13 @@ LibraryController::LibraryController(QObject* parent)
 
     connect(&m_parseWatcher, &QFutureWatcher<ParseOutcome>::finished,
             this, &LibraryController::onParseFinished_);
+
+    connect(&m_bulkWriteWatcher, &QFutureWatcher<ImportOutcome>::progressValueChanged,
+            this, [this](int v) { m_bulkCurrent = v; emit bulkMatchStateChanged(); });
+    connect(&m_bulkWriteWatcher, &QFutureWatcher<ImportOutcome>::progressRangeChanged,
+            this, [this](int, int max) { m_bulkTotal = max; emit bulkMatchStateChanged(); });
+    connect(&m_bulkWriteWatcher, &QFutureWatcher<ImportOutcome>::finished,
+            this, &LibraryController::onBulkWriteFinished_);
 }
 
 LibraryController::~LibraryController() = default;
@@ -576,10 +584,11 @@ void LibraryController::clearTmdbCandidates()
 }
 
 void LibraryController::downloadTmdbPoster_(const QString& movieId,
-                                            const QString& posterPath)
+                                            const QString& posterPath,
+                                            const std::function<void()>& onDone)
 {
     const QString url = m_tmdb->imageUrl(posterPath, QStringLiteral("w500"));
-    if (url.isEmpty()) return;
+    if (url.isEmpty()) { if (onDone) onDone(); return; }
 
     const QString coversDir = m_libraryRoot + QStringLiteral("/covers");
     QDir().mkpath(coversDir);
@@ -590,9 +599,12 @@ void LibraryController::downloadTmdbPoster_(const QString& movieId,
     QNetworkRequest req(imageUrl);
     auto* reply = m_tmdb->network()->get(req);
     connect(reply, &QNetworkReply::finished, this,
-            [this, reply, movieId, savePath]()
+            [this, reply, movieId, savePath, onDone]()
     {
         reply->deleteLater();
+        // Run the completion callback (poster-queue pump) on EVERY exit path.
+        auto done = qScopeGuard([&] { if (onDone) onDone(); });
+
         if (reply->error() != QNetworkReply::NoError) {
             setStatus_(tr("Poster download failed: %1").arg(reply->errorString()));
             return;
@@ -609,10 +621,8 @@ void LibraryController::downloadTmdbPoster_(const QString& movieId,
         file.close();
 
         if (!m_repo) return;
-        auto movie = m_repo->getById(movieId);
-        if (!movie.has_value()) return;
-        movie->coverFrontPath = savePath;
-        if (!m_repo->insert(*movie)) return;
+        // Lightweight single-column update — no full upsert / child re-insert.
+        if (!m_repo->setCoverFront(movieId, savePath)) return;
 
         // The poster was overwritten in place (same path). Tell the UI to drop
         // its cached pixmaps for this path before the repaints below, otherwise
@@ -620,17 +630,142 @@ void LibraryController::downloadTmdbPoster_(const QString& movieId,
         emit coverUpdated(savePath);
 
         if (m_selectedId == movieId) {
-            m_selected = *movie;
+            m_selected.coverFrontPath = savePath;
             emit selectionChanged();
         }
         const int idx = m_listModel->indexOfId(movieId);
         if (idx >= 0) {
             QList<Movie> next = m_listModel->movies();
-            next[idx] = *movie;
+            next[idx].coverFrontPath = savePath;
             setMoviesOnBothModels_(std::move(next));
         }
-        setStatus_(tr("Cover saved for %1").arg(movie->title));
     });
+}
+
+// ---------------------------------------------------------------------------
+// Bulk TMDb match
+// ---------------------------------------------------------------------------
+
+void LibraryController::applyTmdbMatches(const QList<TmdbBulkMatch>& matches,
+                                         bool downloadPosters)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (matches.isEmpty()) return;
+    if (m_bulkInProgress) return;
+
+    // Build the list of movies to write: copy each from the current model and
+    // set ONLY the tmdbId. Imported metadata is preserved.
+    QHash<QString, int> wantTmdb;
+    wantTmdb.reserve(matches.size());
+    for (const auto& m : matches)
+        if (!m.movieId.isEmpty() && m.tmdbId > 0)
+            wantTmdb.insert(m.movieId, m.tmdbId);
+
+    QList<Movie> updated;
+    updated.reserve(wantTmdb.size());
+    for (const Movie& m : m_listModel->movies()) {
+        auto it = wantTmdb.constFind(m.id);
+        if (it == wantTmdb.constEnd()) continue;
+        Movie copy = m;
+        copy.tmdbId = it.value();
+        updated.append(std::move(copy));
+    }
+    if (updated.isEmpty()) return;
+
+    // Queue posters for after the write (if requested).
+    m_posterQueue.clear();
+    if (downloadPosters) {
+        for (const auto& m : matches)
+            if (!m.movieId.isEmpty() && m.tmdbId > 0 && !m.posterPath.isEmpty())
+                m_posterQueue.append(m);
+    }
+
+    // Write on a worker thread (own DB connection), one transaction.
+    const QString dbPath      = m_libraryPath;
+    const QString libraryRoot = m_libraryRoot;
+    auto task = [updated = std::move(updated), dbPath, libraryRoot]
+                (QPromise<ImportOutcome>& promise) mutable
+    {
+        ImportOutcome out;
+        Database db;
+        if (!db.open(dbPath)) {
+            out.errorString = QObject::tr("DB open failed: %1").arg(db.errorString());
+            promise.addResult(out);
+            return;
+        }
+        MovieRepository repo(db);
+        repo.setLibraryRoot(libraryRoot);
+
+        const int total = int(updated.size());
+        promise.setProgressRange(0, total);
+        auto conn = db.handle();
+        if (!conn.transaction()) {
+            out.errorString = QObject::tr("BEGIN failed: %1").arg(conn.lastError().text());
+            promise.addResult(out);
+            return;
+        }
+        for (int i = 0; i < total; ++i) {
+            if (promise.isCanceled()) { conn.rollback(); return; }
+            if (!repo.insert(updated[i])) {
+                conn.rollback();
+                out.errorString = repo.lastError();
+                promise.addResult(out);
+                return;
+            }
+            promise.setProgressValue(i + 1);
+        }
+        if (!conn.commit()) {
+            out.errorString = QObject::tr("COMMIT failed: %1").arg(conn.lastError().text());
+            promise.addResult(out);
+            return;
+        }
+        out.imported = total;
+        promise.addResult(out);
+    };
+
+    m_bulkInProgress = true;
+    m_bulkStage   = tr("Linking %1 titles to TMDb…").arg(updated.size());
+    m_bulkCurrent = 0;
+    m_bulkTotal   = int(updated.size());
+    emit bulkMatchStateChanged();
+    m_bulkWriteWatcher.setFuture(QtConcurrent::run(task));
+}
+
+void LibraryController::onBulkWriteFinished_()
+{
+    const auto outcome = m_bulkWriteWatcher.result();
+    m_bulkInProgress = false;
+    m_bulkStage.clear();
+    emit bulkMatchStateChanged();
+
+    if (!outcome.errorString.isEmpty()) {
+        m_posterQueue.clear();
+        setStatus_(tr("Bulk match failed: %1").arg(outcome.errorString));
+        emit bulkMatchFinished(0, outcome.errorString);
+        return;
+    }
+
+    refresh();   // reload all models from the DB (tmdbIds now set)
+    setStatus_(tr("Linked %1 titles to TMDb").arg(outcome.imported));
+    emit bulkMatchFinished(outcome.imported, {});
+
+    // Now fetch posters (if any were queued), throttled.
+    pumpPosterQueue_();
+}
+
+void LibraryController::pumpPosterQueue_()
+{
+    constexpr int kMaxInFlight = 6;
+    while (m_postersInFlight < kMaxInFlight && !m_posterQueue.isEmpty()) {
+        const TmdbBulkMatch m = m_posterQueue.takeFirst();
+        ++m_postersInFlight;
+        downloadTmdbPoster_(m.movieId, m.posterPath, [this] {
+            --m_postersInFlight;
+            pumpPosterQueue_();   // start the next as each completes
+            if (m_postersInFlight == 0 && m_posterQueue.isEmpty())
+                setStatus_(tr("Posters downloaded"));
+        });
+    }
 }
 
 // ---------------------------------------------------------------------------

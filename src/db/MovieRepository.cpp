@@ -534,6 +534,21 @@ bool MovieRepository::insert(const Movie& movie)
         && insertFts_(movie);
 }
 
+bool MovieRepository::setCoverFront(const QString& id, const QString& absolutePath)
+{
+    auto conn = m_db.handle();
+    QSqlQuery q(conn);
+    q.prepare(QStringLiteral(
+        "UPDATE movies SET cover_front_path = ? WHERE id = ?"));
+    q.addBindValue(toRelativeCover_(absolutePath));
+    q.addBindValue(id);
+    if (!q.exec()) {
+        m_lastError = q.lastError().text();
+        return false;
+    }
+    return true;
+}
+
 bool MovieRepository::remove(const QString& id)
 {
     auto conn = m_db.handle();

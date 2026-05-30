@@ -53,6 +53,11 @@ public:
 
     // ---- API actions -----------------------------------------------------
     void search(const QString& title, int year = 0);
+    // Like search(), but the result is reported via searchForFinished() tagged
+    // with the caller's requestId. Lets a bulk caller correlate each reply to a
+    // specific movie even when titles/years collide (search()'s title/year are
+    // ambiguous across a large collection).
+    void searchFor(quint64 requestId, const QString& title, int year = 0);
     void getMovie(int tmdbId);
     void fetchConfiguration();
 
@@ -69,6 +74,9 @@ signals:
     void searchFinished(const QString& title, int year,
                         const QList<TmdbCandidate>& candidates,
                         const QString& errorString);
+    void searchForFinished(quint64 requestId,
+                           const QList<TmdbCandidate>& candidates,
+                           const QString& errorString);
     void movieFinished(const TmdbMovieDetails& details,
                        const QString& errorString);
     void configurationFetched(const TmdbImageConfig& config,

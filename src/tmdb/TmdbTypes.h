@@ -30,6 +30,15 @@ struct TmdbGenre {
     QString name;
 };
 
+// One confirmed bulk match: which collection movie links to which TMDb id, plus
+// the poster path to fetch. Produced by BulkTmdbMatchDialog, consumed by
+// LibraryController::applyTmdbMatches.
+struct TmdbBulkMatch {
+    QString movieId;
+    int     tmdbId = 0;
+    QString posterPath;
+};
+
 // Rich "add a title" search/filter criteria. When `title` is non-empty the
 // client uses /search/movie (free-text match) and applies the remaining
 // filters client-side; when it is empty it uses /discover/movie with every

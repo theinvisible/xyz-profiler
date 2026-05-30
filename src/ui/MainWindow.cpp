@@ -6,6 +6,7 @@
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 #include "ui/AddTitleDialog.h"
+#include "ui/BulkTmdbMatchDialog.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
 #include "ui/EditMovieDialog.h"
@@ -188,6 +189,15 @@ void MainWindow::buildToolBar_()
             [this] { confirmDeleteMovie_(m_controller->selectedId()); });
     tb->addWidget(m_deleteBtn);
 
+    // Bulk-match the selected titles against TMDb.
+    m_matchBtn = new QToolButton;
+    m_matchBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_matchBtn->setToolTip(tr("Match the selected titles on TMDb"));
+    m_matchBtn->setEnabled(false);
+    connect(m_matchBtn, &QToolButton::clicked, this,
+            [this] { showBulkMatchDialog_(selectedMovieIds_()); });
+    tb->addWidget(m_matchBtn);
+
     tb->addWidget(spacer());
 
     // Search.
@@ -272,7 +282,9 @@ void MainWindow::buildCentralWidget_()
     m_treeView->setModel(m_treeSortProxy);
     m_treeView->setItemDelegate(new MovieRowDelegate(m_treeView));
     m_treeView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Extended (Ctrl/Shift) multi-selection enables bulk actions; single click
+    // and arrow keys still drive the detail pane via currentChanged.
+    m_treeView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_treeView->setSortingEnabled(true);
     m_treeView->setAlternatingRowColors(false);
     m_treeView->setRootIsDecorated(true);
@@ -394,6 +406,17 @@ void MainWindow::buildCentralWidget_()
         const QString id = idx.data(MovieListModel::IdRole).toString();
         showMovieContextMenu_(id, m_coverGrid->viewport()->mapToGlobal(pos));
     });
+
+    // Keep the bulk-match button's enabled state in sync with the multi-selection
+    // in whichever view is active.
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this](const QItemSelection&, const QItemSelection&) {
+        updateBulkActionEnabled_();
+    });
+    connect(m_coverGrid->selectionModel(), &QItemSelectionModel::selectionChanged,
+            this, [this](const QItemSelection&, const QItemSelection&) {
+        updateBulkActionEnabled_();
+    });
 }
 
 void MainWindow::buildStatusBar_()
@@ -472,6 +495,8 @@ void MainWindow::connectController_()
             this, &MainWindow::onImportStateChanged_);
     connect(m_controller, &LibraryController::tmdbStateChanged,
             this, &MainWindow::onTmdbStateChanged_);
+    connect(m_controller, &LibraryController::bulkMatchStateChanged,
+            this, &MainWindow::onBulkMatchStateChanged_);
     connect(m_controller, &LibraryController::coverUpdated, this,
             [this](const QString& path) {
         // The poster file changed in place: bump its cache generation, then
@@ -507,6 +532,8 @@ void MainWindow::refreshIcons_()
         m_editBtn->setIcon(IconFactory::icon(QStringLiteral("edit"), p.text2, 16));
     if (m_deleteBtn)
         m_deleteBtn->setIcon(IconFactory::icon(QStringLiteral("trash"), p.text2, 16));
+    if (m_matchBtn)
+        m_matchBtn->setIcon(IconFactory::icon(QStringLiteral("refresh"), p.text2, 16));
     if (m_searchIcon)
         m_searchIcon->setIcon(IconFactory::icon(QStringLiteral("search"), p.text3, 16));
     m_settingsBtn->setIcon(IconFactory::icon(QStringLiteral("settings"), p.text2, 16));
@@ -581,14 +608,21 @@ void MainWindow::onImportStateChanged_()
             m_progressDlg->setCancelButton(nullptr);
             m_progressDlg->setMinimumDuration(0);
         }
-        m_progressDlg->setLabelText(m_controller->importStage());
-        m_progressDlg->setMaximum(std::max(1, m_controller->importTotal()));
-        m_progressDlg->setValue(m_controller->importCurrent());
-        m_progressDlg->show();
+        // Local pointer + setValue() LAST: a modal QProgressDialog::setValue()
+        // spins processEvents(), which can deliver the worker's finished()
+        // re-entrantly and null m_progressDlg mid-call.
+        QProgressDialog* dlg = m_progressDlg;
+        dlg->setLabelText(m_controller->importStage());
+        dlg->setMaximum(std::max(1, m_controller->importTotal()));
+        dlg->show();
+        dlg->setValue(m_controller->importCurrent());
     } else {
         if (m_progressDlg) {
+            // deleteLater, not delete: a modal QProgressDialog::setValue() spins
+            // processEvents(), so this branch can run with a setValue() on this
+            // dialog still on the stack — deleting it outright is a use-after-free.
             m_progressDlg->close();
-            delete m_progressDlg;
+            m_progressDlg->deleteLater();
             m_progressDlg = nullptr;
         }
     }
@@ -735,9 +769,113 @@ void MainWindow::showMovieContextMenu_(const QString& movieId, const QPoint& glo
         IconFactory::icon(QStringLiteral("edit"), p.text2, 16), tr("Edit…"));
     QAction* delAct = menu.addAction(
         IconFactory::icon(QStringLiteral("trash"), p.text2, 16), tr("Delete…"));
+
+    // "Match on TMDb…" operates on the whole multi-selection. If the
+    // right-clicked row isn't part of the current selection, fall back to it.
+    QStringList bulkIds = selectedMovieIds_();
+    if (!bulkIds.contains(movieId)) bulkIds = { movieId };
+    menu.addSeparator();
+    QAction* matchAct = menu.addAction(
+        IconFactory::icon(QStringLiteral("refresh"), p.text2, 16),
+        bulkIds.size() > 1 ? tr("Match %n title(s) on TMDb…", "", bulkIds.size())
+                           : tr("Match on TMDb…"));
+
     QAction* chosen = menu.exec(globalPos);
-    if (chosen == editAct)      showEditDialog_(movieId);
-    else if (chosen == delAct)  confirmDeleteMovie_(movieId);
+    if (chosen == editAct)       showEditDialog_(movieId);
+    else if (chosen == delAct)   confirmDeleteMovie_(movieId);
+    else if (chosen == matchAct) showBulkMatchDialog_(bulkIds);
+}
+
+QStringList MainWindow::selectedMovieIds_() const
+{
+    QStringList ids;
+    const bool isList = (m_settings->viewMode() == QLatin1String("list"));
+    if (isList) {
+        const auto rows = m_treeView->selectionModel()->selectedRows();
+        for (const QModelIndex& idx : rows) {
+            const auto srcIdx = m_treeSortProxy->mapToSource(idx);
+            const QString id = m_controller->treeModel()->movieIdAtIndex(srcIdx);
+            if (!id.isEmpty()) ids << id;
+        }
+    } else {
+        const auto rows = m_coverGrid->selectionModel()->selectedRows();
+        // Grid is a flat list (selectedRows works on column 0); fall back to
+        // selectedIndexes if the model has no row concept.
+        const auto idxs = rows.isEmpty()
+            ? m_coverGrid->selectionModel()->selectedIndexes() : rows;
+        for (const QModelIndex& idx : idxs) {
+            const QString id = idx.data(MovieListModel::IdRole).toString();
+            if (!id.isEmpty() && !ids.contains(id)) ids << id;
+        }
+    }
+    return ids;
+}
+
+void MainWindow::updateBulkActionEnabled_()
+{
+    if (m_matchBtn)
+        m_matchBtn->setEnabled(!selectedMovieIds_().isEmpty());
+}
+
+void MainWindow::showBulkMatchDialog_(const QStringList& movieIds)
+{
+    if (movieIds.isEmpty()) return;
+    if (!m_controller->libraryOpen()) {
+        QMessageBox::information(this, tr("Match on TMDb"),
+            tr("Open a library before matching titles."));
+        return;
+    }
+    if (!m_tmdb || !m_tmdb->hasApiKey()) {
+        QMessageBox::information(this, tr("Match on TMDb"),
+            tr("TMDb is not configured. Set your TMDb API key in Settings first."));
+        return;
+    }
+
+    // Resolve ids to full Movie objects from the list model.
+    QList<Movie> movies;
+    movies.reserve(movieIds.size());
+    for (const QString& id : movieIds)
+        if (const Movie* m = m_controller->listModel()->find(id))
+            movies.append(*m);
+    if (movies.isEmpty()) return;
+
+    BulkTmdbMatchDialog dlg(m_tmdb, movies, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        const auto matches = dlg.matches();
+        if (!matches.isEmpty())
+            m_controller->applyTmdbMatches(matches, dlg.downloadPosters());
+    }
+}
+
+void MainWindow::onBulkMatchStateChanged_()
+{
+    if (m_controller->bulkMatchInProgress()) {
+        if (!m_bulkProgressDlg) {
+            m_bulkProgressDlg = new QProgressDialog(this);
+            m_bulkProgressDlg->setWindowTitle(tr("Matching on TMDb…"));
+            m_bulkProgressDlg->setWindowModality(Qt::WindowModal);
+            m_bulkProgressDlg->setCancelButton(nullptr);
+            m_bulkProgressDlg->setMinimumDuration(0);
+        }
+        // Local pointer + setValue() LAST (see onImportStateChanged_): the worker
+        // can finish re-entrantly inside setValue()'s processEvents() and null
+        // m_bulkProgressDlg, so nothing must touch the member afterwards.
+        QProgressDialog* dlg = m_bulkProgressDlg;
+        dlg->setLabelText(m_controller->bulkMatchStage());
+        dlg->setMaximum(std::max(1, m_controller->bulkMatchTotal()));
+        dlg->show();
+        dlg->setValue(m_controller->bulkMatchCurrent());
+    } else if (m_bulkProgressDlg) {
+        // deleteLater (not delete): a modal QProgressDialog::setValue() spins
+        // processEvents() internally, so this close path can be reached while a
+        // setValue() call on this very dialog is still on the stack (the worker
+        // finishing re-entrantly). Deleting it outright would free the object
+        // under that call → access violation. deleteLater defers until the stack
+        // unwinds; null the member now so it's not touched again meanwhile.
+        m_bulkProgressDlg->close();
+        m_bulkProgressDlg->deleteLater();
+        m_bulkProgressDlg = nullptr;
+    }
 }
 
 void MainWindow::showSettingsDialog_()

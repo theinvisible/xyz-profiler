@@ -265,7 +265,9 @@ CoverGridWidget::CoverGridWidget(QWidget* parent)
     setGridSize({kTileW, kTileH});
     setUniformItemSizes(true);
     setResizeMode(QListView::Adjust);
-    setSelectionMode(QAbstractItemView::SingleSelection);
+    // Extended (Ctrl/Shift) multi-selection for bulk actions; a plain click /
+    // arrow keys still drive the detail pane via currentChanged.
+    setSelectionMode(QAbstractItemView::ExtendedSelection);
     setMouseTracking(true);   // enable hover state
     setSpacing(10);
 

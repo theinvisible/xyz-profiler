@@ -38,6 +38,12 @@ public:
     // don't cascade). Returns true on success (including when no row matched).
     bool remove(const QString& id);
 
+    // Update only the front-cover path for one movie (single UPDATE, no child
+    // re-insert). Much cheaper than insert() when only the poster changed —
+    // used after a poster download. `absolutePath` is relativized to the
+    // library root like any other cover path.
+    bool setCoverFront(const QString& id, const QString& absolutePath);
+
     // Insert many movies inside a single transaction. Faster for imports.
     // Returns true on success; on failure the transaction is rolled back
     // and the database is unchanged.

@@ -12,6 +12,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <functional>
 #include <memory>
 
 namespace xyz {
@@ -92,6 +93,19 @@ public:
     void addMovieFromTmdb(int tmdbId, const QString& format,
                           const QString& posterPath = {});
 
+    // Bulk-link many movies to TMDb at once. Writes only the tmdbId of each
+    // match on a worker thread (one transaction), then — if downloadPosters —
+    // fetches their posters through a throttled queue. Imported metadata is
+    // left untouched. See TmdbBulkMatch.
+    void applyTmdbMatches(const QList<TmdbBulkMatch>& matches, bool downloadPosters);
+
+    // Bulk-match progress (for a QProgressDialog), valid while
+    // bulkMatchInProgress() is true.
+    bool    bulkMatchInProgress() const { return m_bulkInProgress; }
+    QString bulkMatchStage()      const { return m_bulkStage; }
+    int     bulkMatchCurrent()    const { return m_bulkCurrent; }
+    int     bulkMatchTotal()      const { return m_bulkTotal; }
+
 signals:
     void libraryChanged();
     void moviesChanged();
@@ -101,6 +115,10 @@ signals:
     void importFinished(int imported, const QString& errorString);
     void tmdbStateChanged();
     void tmdbMatchPicked(const QString& movieId, int tmdbId);
+    // Bulk-match lifecycle: state changes drive the progress dialog; finished
+    // reports how many links were written.
+    void bulkMatchStateChanged();
+    void bulkMatchFinished(int matched, const QString& errorString);
     // A cover file on disk was replaced in place (same path, new bytes). The UI
     // uses this to invalidate its path-keyed pixmap caches before repainting.
     void coverUpdated(const QString& path);
@@ -122,9 +140,13 @@ private:
     void setImportStage_(const QString& stage);
     void onParseFinished_();
     void runWriter_(QList<Movie> movies, bool autoCommit);
-    void downloadTmdbPoster_(const QString& movieId, const QString& posterPath);
+    void downloadTmdbPoster_(const QString& movieId, const QString& posterPath,
+                             const std::function<void()>& onDone = {});
     void setMoviesOnBothModels_(QList<Movie> movies);
     static QList<Movie> groupByBoxSet_(QList<Movie> movies);
+
+    void onBulkWriteFinished_();
+    void pumpPosterQueue_();   // start downloads up to the in-flight cap
 
     std::unique_ptr<Database>            m_db;
     std::unique_ptr<MovieRepository>     m_repo;
@@ -163,6 +185,15 @@ private:
     int                             m_addingTmdbId = 0;
     QString                         m_addingPosterPath;
     QString                         m_addingFormat;
+
+    // Bulk TMDb match: worker-thread DB write + throttled poster downloads.
+    bool                            m_bulkInProgress = false;
+    QString                         m_bulkStage;
+    int                             m_bulkCurrent = 0;
+    int                             m_bulkTotal   = 0;
+    QFutureWatcher<ImportOutcome>   m_bulkWriteWatcher;   // reuses ImportOutcome
+    QList<TmdbBulkMatch>            m_posterQueue;        // pending poster fetches
+    int                             m_postersInFlight = 0;
 };
 
 } // namespace xyz
