@@ -115,7 +115,7 @@ void SettingsDialog::buildUi()
     const QList<Cat> cats = {
         { tr("Appearance"),   QStringLiteral("sun") },
         { tr("Library"),      QStringLiteral("film") },
-        { tr("Data & Sync"),  QStringLiteral("refresh") },
+        { tr("Data && Sync"), QStringLiteral("refresh") },
         { tr("About"),        QStringLiteral("disc") },
     };
 
