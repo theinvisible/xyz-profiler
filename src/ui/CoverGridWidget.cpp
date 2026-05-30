@@ -2,6 +2,7 @@
 
 #include "models/MovieListModel.h"
 #include "ui/CoverArt.h"
+#include "ui/CoverCache.h"
 #include "ui/Theme.h"
 
 #include <QPainter>
@@ -95,7 +96,8 @@ void CoverDelegate::paint(QPainter* painter,
     QPixmap cover;
     bool real = false;
     if (!coverPath.isEmpty()) {
-        if (!QPixmapCache::find(coverPath, &cover)) {
+        const QString key = CoverCache::key(coverPath, QStringLiteral("grid"));
+        if (!QPixmapCache::find(key, &cover)) {
             QPixmap raw(coverPath);
             if (!raw.isNull()) {
                 const QSize target = QSize(kCoverW, kCoverH) * dpr;
@@ -106,7 +108,7 @@ void CoverDelegate::paint(QPainter* painter,
                 cover = scaled.copy(qMax(0, dx), qMax(0, dy),
                                     target.width(), target.height());
                 cover.setDevicePixelRatio(dpr);
-                QPixmapCache::insert(coverPath, cover);
+                QPixmapCache::insert(key, cover);
             }
         }
         real = !cover.isNull();

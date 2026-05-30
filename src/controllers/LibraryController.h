@@ -90,6 +90,9 @@ signals:
     void importFinished(int imported, const QString& errorString);
     void tmdbStateChanged();
     void tmdbMatchPicked(const QString& movieId, int tmdbId);
+    // A cover file on disk was replaced in place (same path, new bytes). The UI
+    // uses this to invalidate its path-keyed pixmap caches before repainting.
+    void coverUpdated(const QString& path);
 
 private:
     void setStatus_(const QString& message);

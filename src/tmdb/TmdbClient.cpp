@@ -3,6 +3,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLocale>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QNetworkRequest>
@@ -13,6 +14,20 @@ namespace xyz {
 namespace {
 
 constexpr auto kApiBase = "https://api.themoviedb.org/3";
+
+// TMDb's `language` parameter expects an ISO 639-1 code, optionally combined
+// with an ISO 3166-1 region (e.g. "de-DE"). QLocale::name() yields the
+// underscore form ("de_AT"), so swap the separator. When a region-specific
+// translation is missing TMDb falls back to the base language, so "de-AT"
+// still returns German metadata. Mirrors how main.cpp picks the UI language
+// from QLocale(), keeping search results and the interface in the same
+// language.
+QString defaultTmdbLanguage()
+{
+    QString name = QLocale().name(); // e.g. "de_AT", "en_US"
+    name.replace(QLatin1Char('_'), QLatin1Char('-'));
+    return name.isEmpty() ? QStringLiteral("en-US") : name;
+}
 
 QString jsonStr(const QJsonObject& o, const char* key)
 {
@@ -131,7 +146,8 @@ TmdbClient::TmdbClient(QString apiKey, QNetworkAccessManager* network, QObject* 
     : QObject(parent),
       m_apiKey(std::move(apiKey)),
       m_network(network),
-      m_ownsNetwork(network == nullptr)
+      m_ownsNetwork(network == nullptr),
+      m_language(defaultTmdbLanguage())
 {
     if (m_ownsNetwork) m_network = new QNetworkAccessManager(this);
 }
@@ -180,7 +196,7 @@ void TmdbClient::search(const QString& title, int year)
     QUrlQuery q;
     q.addQueryItem(QStringLiteral("query"), title);
     q.addQueryItem(QStringLiteral("include_adult"), QStringLiteral("false"));
-    q.addQueryItem(QStringLiteral("language"), QStringLiteral("en-US"));
+    q.addQueryItem(QStringLiteral("language"), m_language);
     if (year > 0) {
         q.addQueryItem(QStringLiteral("year"), QString::number(year));
     }
@@ -209,7 +225,7 @@ void TmdbClient::getMovie(int tmdbId)
         return;
     }
     QUrlQuery q;
-    q.addQueryItem(QStringLiteral("language"), QStringLiteral("en-US"));
+    q.addQueryItem(QStringLiteral("language"), m_language);
     auto* reply = get_(QStringLiteral("/movie/") + QString::number(tmdbId), q);
     connect(reply, &QNetworkReply::finished, this, [this, reply]() {
         reply->deleteLater();

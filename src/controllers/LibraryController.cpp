@@ -491,6 +491,11 @@ void LibraryController::downloadTmdbPoster_(const QString& movieId,
         movie->coverFrontPath = savePath;
         if (!m_repo->insert(*movie)) return;
 
+        // The poster was overwritten in place (same path). Tell the UI to drop
+        // its cached pixmaps for this path before the repaints below, otherwise
+        // the grid, list and detail pane keep showing the previous artwork.
+        emit coverUpdated(savePath);
+
         if (m_selectedId == movieId) {
             m_selected = *movie;
             emit selectionChanged();

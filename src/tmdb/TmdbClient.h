@@ -35,6 +35,13 @@ public:
     QString apiKey() const { return m_apiKey; }
     bool    hasApiKey() const { return !m_apiKey.isEmpty(); }
 
+    // TMDb `language` parameter (ISO 639-1, optionally with region — e.g.
+    // "de-DE"). Defaults to the application locale so search results and
+    // movie details match the UI language; override for tests or an explicit
+    // user preference.
+    void    setLanguage(const QString& language) { m_language = language; }
+    QString language() const { return m_language; }
+
     QNetworkAccessManager* network() const { return m_network; }
 
     // Cached image configuration — empty until the first successful
@@ -65,6 +72,7 @@ private:
     QString                 m_apiKey;
     QNetworkAccessManager*  m_network;
     bool                    m_ownsNetwork;
+    QString                 m_language;
     TmdbImageConfig         m_imageConfig;
 };
 

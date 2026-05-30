@@ -2,6 +2,7 @@
 
 #include "models/MovieTreeModel.h"
 #include "ui/CoverArt.h"
+#include "ui/CoverCache.h"
 #include "ui/IconFactory.h"
 #include "ui/Theme.h"
 
@@ -34,8 +35,8 @@ QPixmap starPixmap(bool on, qreal dpr)
 QPixmap rowCover(const QString& path, const QString& title,
                  const QString& format, qreal dpr)
 {
-    const QString key = QStringLiteral("xprow_cover_%1_%2")
-                            .arg(path.isEmpty() ? title : path).arg(dpr);
+    const QString id = path.isEmpty() ? title : path;
+    const QString key = CoverCache::key(id, QStringLiteral("row_%1").arg(dpr));
     QPixmap pm;
     if (QPixmapCache::find(key, &pm)) return pm;
 

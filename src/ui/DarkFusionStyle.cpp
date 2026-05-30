@@ -7,6 +7,7 @@
 #include <QFontDatabase>
 #include <QGuiApplication>
 #include <QPalette>
+#include <QStyle>
 #include <QStyleFactory>
 #include <QStyleHints>
 
@@ -216,14 +217,23 @@ void DarkFusionStyle::applyTheme(const QString& themeName)
         dark = (QGuiApplication::styleHints()->colorScheme() == Qt::ColorScheme::Dark);
     }
 
-    QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    // The Fusion base style only needs installing once. Recreating it on every
+    // toggle would re-polish the entire widget tree for nothing — a major part
+    // of the switch latency.
+    if (QApplication::style()->name().compare(QLatin1String("fusion"),
+                                              Qt::CaseInsensitive) != 0)
+        QApplication::setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+
     QApplication::setPalette(dark ? darkPalette() : lightPalette());
 
+    // Font is theme-independent: set it only if it isn't ours yet, otherwise we
+    // pay for a full re-polish + relayout on every theme switch.
     QFont font(QStringLiteral("Segoe UI Variable Display"));
     if (!QFontDatabase::families().contains(font.family()))
         font.setFamily(QStringLiteral("Segoe UI"));
     font.setPointSize(10);
-    QApplication::setFont(font);
+    if (QApplication::font() != font)
+        QApplication::setFont(font);
 
     Theme::setDark(dark);
     if (auto* app = qobject_cast<QApplication*>(QCoreApplication::instance()))

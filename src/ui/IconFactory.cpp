@@ -3,6 +3,7 @@
 #include <QByteArray>
 #include <QHash>
 #include <QPainter>
+#include <QPixmapCache>
 #include <QSvgRenderer>
 
 namespace xyz {
@@ -76,6 +77,15 @@ QByteArray buildSvg(const QString& name, const QColor& color, qreal stroke)
 QPixmap pixmap(const QString& name, const QColor& color,
                int size, qreal stroke, qreal dpr)
 {
+    // Rasterising an SVG on every call is wasteful (theme switches, per-frame
+    // star/avatar painting). Cache by the full appearance key.
+    const QString key = QStringLiteral("xpicon_%1_%2_%3_%4_%5")
+        .arg(name, color.name(QColor::HexArgb), QString::number(size),
+             QString::number(stroke), QString::number(dpr));
+    QPixmap cached;
+    if (QPixmapCache::find(key, &cached))
+        return cached;
+
     const QByteArray svg = buildSvg(name, color, stroke);
     if (svg.isEmpty()) return {};
 
@@ -89,6 +99,8 @@ QPixmap pixmap(const QString& name, const QColor& color,
     p.setRenderHint(QPainter::Antialiasing, true);
     renderer.render(&p, QRectF(0, 0, size, size));
     p.end();
+
+    QPixmapCache::insert(key, pm);
     return pm;
 }
 

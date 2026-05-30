@@ -5,6 +5,7 @@
 #include "models/MovieListModel.h"
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
+#include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
 #include "ui/IconFactory.h"
 #include "ui/ImportPreviewDialog.h"
@@ -374,6 +375,16 @@ void MainWindow::connectController_()
             this, &MainWindow::onImportStateChanged_);
     connect(m_controller, &LibraryController::tmdbStateChanged,
             this, &MainWindow::onTmdbStateChanged_);
+    connect(m_controller, &LibraryController::coverUpdated, this,
+            [this](const QString& path) {
+        // The poster file changed in place: bump its cache generation, then
+        // repaint the views and re-render the detail pane so the new artwork
+        // replaces the cached one.
+        CoverCache::bump(path);
+        if (m_coverGrid)  m_coverGrid->viewport()->update();
+        if (m_treeView)   m_treeView->viewport()->update();
+        if (m_detailPane) m_detailPane->refreshTheme();
+    });
 }
 
 void MainWindow::connectSettings_()

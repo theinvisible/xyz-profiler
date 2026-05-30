@@ -1,6 +1,7 @@
 #include "ui/MovieDetailWidget.h"
 
 #include "ui/CoverArt.h"
+#include "ui/CoverCache.h"
 #include "ui/FlowLayout.h"
 #include "ui/IconFactory.h"
 #include "ui/Theme.h"
@@ -440,7 +441,7 @@ void MovieDetailWidget::populateHeader_(const Movie& m)
     // Cover.
     QPixmap cover;
     if (!m.coverFrontPath.isEmpty()) {
-        const QString key = m.coverFrontPath + QStringLiteral("_detail");
+        const QString key = CoverCache::key(m.coverFrontPath, QStringLiteral("detail"));
         if (!QPixmapCache::find(key, &cover)) {
             QPixmap raw(m.coverFrontPath);
             if (!raw.isNull()) {
