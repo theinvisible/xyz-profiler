@@ -37,6 +37,8 @@ public:
     // The movie with the dialog's edits applied. Valid after exec() == Accepted.
     Movie editedMovie() const { return m_movie; }
     QString tmdbPosterPath() const { return m_tmdbPosterPath; }
+    QString selectedFrontCoverPath() const { return m_pendingFrontCoverPath; }
+    QString selectedBackCoverPath() const { return m_pendingBackCoverPath; }
 
 private:
     void buildUi_();
@@ -49,10 +51,13 @@ private:
                               const QString& error);
     void applyTmdbDetails_(const TmdbMovieDetails& details);
     QWidget* makeTmdbResultRow_(const TmdbCandidate& candidate);
+    QWidget* makeCoverPanel_(const QString& title, QLabel* preview,
+                             QPushButton** chooseButton, QPushButton** clearButton);
     void addGenre_(const QString& genre);
     void rebuildGenreChips_();
     void updateCoverPreview_(QLabel* label, const QString& path);
-    void pickCover_(QLineEdit* edit, QLabel* preview);
+    void loadTmdbPosterPreview_(const QString& posterPath);
+    void pickCover_(bool front);
     void commit_();   // write widgets back into m_movie, then accept()
 
     Movie       m_movie;
@@ -63,6 +68,8 @@ private:
     quint64     m_tmdbRequestId = 0;
     int         m_pendingTmdbId = 0;
     QString     m_tmdbPosterPath;
+    QString     m_pendingFrontCoverPath;
+    QString     m_pendingBackCoverPath;
 
     QLineEdit*      m_title       = nullptr;
     QLineEdit*      m_original    = nullptr;
@@ -81,10 +88,12 @@ private:
     QLineEdit*      m_location    = nullptr;
     QDateEdit*      m_purchaseDate = nullptr;
     QLineEdit*      m_purchasePlace = nullptr;
-    QLineEdit*      m_coverFront  = nullptr;
-    QLineEdit*      m_coverBack   = nullptr;
     QLabel*         m_coverFrontPreview = nullptr;
     QLabel*         m_coverBackPreview = nullptr;
+    QPushButton*    m_chooseFrontCover = nullptr;
+    QPushButton*    m_chooseBackCover = nullptr;
+    QPushButton*    m_clearFrontCover = nullptr;
+    QPushButton*    m_clearBackCover = nullptr;
     QWidget*        m_genreHost   = nullptr;
     FlowLayout*     m_genreFlow   = nullptr;
     QLineEdit*      m_genreInput  = nullptr;

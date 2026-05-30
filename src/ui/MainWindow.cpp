@@ -731,7 +731,10 @@ void MainWindow::showAddTitleDialog_()
     const Movie edited = dlg.editedMovie();
     m_controller->updateMovie(edited);
     m_controller->selectMovie(edited.id);
-    if (!dlg.tmdbPosterPath().isEmpty())
+    m_controller->importCoverImagesForMovie(edited.id,
+                                            dlg.selectedFrontCoverPath(),
+                                            dlg.selectedBackCoverPath());
+    if (dlg.selectedFrontCoverPath().isEmpty() && !dlg.tmdbPosterPath().isEmpty())
         m_controller->downloadTmdbPosterForMovie(edited.id, dlg.tmdbPosterPath());
 }
 
@@ -747,7 +750,10 @@ void MainWindow::showEditDialog_(const QString& movieId)
     if (dlg.exec() == QDialog::Accepted) {
         const Movie edited = dlg.editedMovie();
         m_controller->updateMovie(edited);
-        if (!dlg.tmdbPosterPath().isEmpty())
+        m_controller->importCoverImagesForMovie(edited.id,
+                                                dlg.selectedFrontCoverPath(),
+                                                dlg.selectedBackCoverPath());
+        if (dlg.selectedFrontCoverPath().isEmpty() && !dlg.tmdbPosterPath().isEmpty())
             m_controller->downloadTmdbPosterForMovie(edited.id, dlg.tmdbPosterPath());
     }
 }

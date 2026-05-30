@@ -18,6 +18,7 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QPromise>
+#include <QRegularExpression>
 #include <QScopeGuard>
 #include <QSqlDatabase>
 #include <QSqlError>
@@ -25,6 +26,49 @@
 #include <QtConcurrent>
 
 namespace xyz {
+namespace {
+
+QString coverFilePath(const QString& libraryRoot, const QString& movieId,
+                      const QString& sourcePath, const QChar side)
+{
+    if (libraryRoot.isEmpty() || movieId.isEmpty() || sourcePath.isEmpty())
+        return {};
+
+    const QString coversDir = QDir(libraryRoot).filePath(QStringLiteral("covers"));
+    QDir().mkpath(coversDir);
+
+    QString ext = QFileInfo(sourcePath).suffix().toLower();
+    if (ext.isEmpty()) ext = QStringLiteral("jpg");
+
+    QString safeId = movieId;
+    safeId.replace(QRegularExpression(QStringLiteral("[^A-Za-z0-9_.-]")),
+                   QStringLiteral("_"));
+    return QDir(coversDir).filePath(QStringLiteral("%1%2.%3")
+                                    .arg(safeId, QString(side), ext));
+}
+
+bool copyCoverFile(const QString& sourcePath, const QString& destPath,
+                   QString* errorString)
+{
+    if (sourcePath.isEmpty() || destPath.isEmpty()) return false;
+    if (!QFileInfo::exists(sourcePath)) {
+        if (errorString)
+            *errorString = QObject::tr("Cover file does not exist: %1").arg(sourcePath);
+        return false;
+    }
+    if (QFileInfo(sourcePath).absoluteFilePath() == QFileInfo(destPath).absoluteFilePath())
+        return true;
+
+    QFile::remove(destPath);
+    if (!QFile::copy(sourcePath, destPath)) {
+        if (errorString)
+            *errorString = QObject::tr("Could not copy cover to %1").arg(destPath);
+        return false;
+    }
+    return true;
+}
+
+} // namespace
 
 LibraryController::LibraryController(QObject* parent)
     : QObject(parent),
@@ -582,6 +626,61 @@ void LibraryController::downloadTmdbPosterForMovie(const QString& movieId,
     if (!m_tmdb || !m_tmdb->hasApiKey()) return;
     if (movieId.isEmpty() || posterPath.isEmpty()) return;
     downloadTmdbPoster_(movieId, posterPath);
+}
+
+void LibraryController::importCoverImagesForMovie(const QString& movieId,
+                                                  const QString& frontSourcePath,
+                                                  const QString& backSourcePath)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (movieId.isEmpty()) return;
+
+    QString frontDest;
+    QString backDest;
+    QString err;
+
+    if (!frontSourcePath.isEmpty()) {
+        frontDest = coverFilePath(m_libraryRoot, movieId, frontSourcePath, QChar('f'));
+        if (!copyCoverFile(frontSourcePath, frontDest, &err)) {
+            setStatus_(err);
+            return;
+        }
+        if (!m_repo->setCoverFront(movieId, frontDest)) {
+            setStatus_(tr("Failed to save front cover: %1").arg(m_repo->lastError()));
+            return;
+        }
+        emit coverUpdated(frontDest);
+    }
+
+    if (!backSourcePath.isEmpty()) {
+        backDest = coverFilePath(m_libraryRoot, movieId, backSourcePath, QChar('b'));
+        if (!copyCoverFile(backSourcePath, backDest, &err)) {
+            setStatus_(err);
+            return;
+        }
+        if (!m_repo->setCoverBack(movieId, backDest)) {
+            setStatus_(tr("Failed to save back cover: %1").arg(m_repo->lastError()));
+            return;
+        }
+        emit coverUpdated(backDest);
+    }
+
+    if (frontDest.isEmpty() && backDest.isEmpty()) return;
+
+    if (m_selectedId == movieId) {
+        if (!frontDest.isEmpty()) m_selected.coverFrontPath = frontDest;
+        if (!backDest.isEmpty())  m_selected.coverBackPath  = backDest;
+        emit selectionChanged();
+    }
+
+    const int idx = m_listModel->indexOfId(movieId);
+    if (idx >= 0) {
+        QList<Movie> next = m_listModel->movies();
+        if (!frontDest.isEmpty()) next[idx].coverFrontPath = frontDest;
+        if (!backDest.isEmpty())  next[idx].coverBackPath  = backDest;
+        setMoviesOnBothModels_(std::move(next));
+    }
+    setStatus_(tr("Cover image saved"));
 }
 
 void LibraryController::clearTmdbCandidates()

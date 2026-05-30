@@ -93,6 +93,9 @@ public:
     void addMovieFromTmdb(int tmdbId, const QString& format,
                           const QString& posterPath = {});
     void downloadTmdbPosterForMovie(const QString& movieId, const QString& posterPath);
+    void importCoverImagesForMovie(const QString& movieId,
+                                   const QString& frontSourcePath,
+                                   const QString& backSourcePath);
 
     // Bulk-link many movies to TMDb at once. Writes only the tmdbId of each
     // match on a worker thread (one transaction), then — if downloadPosters —

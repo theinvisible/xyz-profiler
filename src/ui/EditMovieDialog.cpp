@@ -271,51 +271,36 @@ void EditMovieDialog::buildUi_()
     grid->setColumnStretch(3, 1);
     detailsTab->insertWidget(detailsTab->count() - 1, box);
 
-    // ---- Cover paths -------------------------------------------------------
+    // ---- Cover images ------------------------------------------------------
     auto* coverBox = new QWidget(this);
-    auto* coverGrid = new QGridLayout(coverBox);
-    coverGrid->setContentsMargins(0, 0, 0, 0);
-    coverGrid->setHorizontalSpacing(10);
-    coverGrid->setVerticalSpacing(8);
+    auto* coverLayout = new QHBoxLayout(coverBox);
+    coverLayout->setContentsMargins(0, 0, 0, 0);
+    coverLayout->setSpacing(16);
 
     m_coverFrontPreview = new QLabel;
     m_coverBackPreview = new QLabel;
-    for (auto* preview : {m_coverFrontPreview, m_coverBackPreview}) {
-        preview->setFixedSize(74, 110);
-        preview->setAlignment(Qt::AlignCenter);
-    }
+    coverLayout->addWidget(makeCoverPanel_(tr("Front cover"), m_coverFrontPreview,
+                                           &m_chooseFrontCover, &m_clearFrontCover));
+    coverLayout->addWidget(makeCoverPanel_(tr("Back cover"), m_coverBackPreview,
+                                           &m_chooseBackCover, &m_clearBackCover));
+    coverLayout->addStretch();
 
-    m_coverFront = new QLineEdit(m_movie.coverFrontPath);
-    connect(m_coverFront, &QLineEdit::textEdited, this,
-            [this] { m_tmdbPosterPath.clear(); });
-    connect(m_coverFront, &QLineEdit::textChanged, this,
-            [this](const QString& path) {
-        updateCoverPreview_(m_coverFrontPreview, path);
-    });
-    auto* frontBtn = new QPushButton(tr("Browse..."));
-    connect(frontBtn, &QPushButton::clicked, this,
-            [this] {
+    connect(m_chooseFrontCover, &QPushButton::clicked, this,
+            [this] { pickCover_(true); });
+    connect(m_chooseBackCover, &QPushButton::clicked, this,
+            [this] { pickCover_(false); });
+    connect(m_clearFrontCover, &QPushButton::clicked, this, [this] {
+        m_pendingFrontCoverPath.clear();
         m_tmdbPosterPath.clear();
-        pickCover_(m_coverFront, m_coverFrontPreview);
+        m_movie.coverFrontPath.clear();
+        updateCoverPreview_(m_coverFrontPreview, {});
     });
-    coverGrid->addWidget(fieldLabel(tr("Front cover")), 0, 0);
-    coverGrid->addWidget(m_coverFront, 0, 1);
-    coverGrid->addWidget(frontBtn, 0, 2);
-    coverGrid->addWidget(m_coverFrontPreview, 0, 3, 2, 1);
+    connect(m_clearBackCover, &QPushButton::clicked, this, [this] {
+        m_pendingBackCoverPath.clear();
+        m_movie.coverBackPath.clear();
+        updateCoverPreview_(m_coverBackPreview, {});
+    });
 
-    m_coverBack = new QLineEdit(m_movie.coverBackPath);
-    connect(m_coverBack, &QLineEdit::textChanged, this,
-            [this](const QString& path) {
-        updateCoverPreview_(m_coverBackPreview, path);
-    });
-    auto* backBtn = new QPushButton(tr("Browse..."));
-    connect(backBtn, &QPushButton::clicked, this,
-            [this] { pickCover_(m_coverBack, m_coverBackPreview); });
-    coverGrid->addWidget(fieldLabel(tr("Back cover")), 1, 0);
-    coverGrid->addWidget(m_coverBack, 1, 1);
-    coverGrid->addWidget(backBtn, 1, 2);
-    coverGrid->addWidget(m_coverBackPreview, 1, 3, 2, 1);
-    coverGrid->setColumnStretch(1, 1);
     coversTab->insertWidget(coversTab->count() - 1, coverBox);
     updateCoverPreview_(m_coverFrontPreview, m_movie.coverFrontPath);
     updateCoverPreview_(m_coverBackPreview, m_movie.coverBackPath);
@@ -501,8 +486,10 @@ void EditMovieDialog::applyTmdbDetails_(const TmdbMovieDetails& d)
     m_genres = d.genres;
     rebuildGenreChips_();
     m_movie.tmdbId = d.id;
-    if (!d.posterPath.isEmpty())
+    if (!d.posterPath.isEmpty()) {
         m_tmdbPosterPath = d.posterPath;
+        loadTmdbPosterPreview_(d.posterPath);
+    }
 }
 
 QWidget* EditMovieDialog::makeTmdbResultRow_(const TmdbCandidate& c)
@@ -587,6 +574,41 @@ QWidget* EditMovieDialog::makeTmdbResultRow_(const TmdbCandidate& c)
     return widget;
 }
 
+QWidget* EditMovieDialog::makeCoverPanel_(const QString& title, QLabel* preview,
+                                          QPushButton** chooseButton,
+                                          QPushButton** clearButton)
+{
+    auto* panel = new QWidget(this);
+    panel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    auto* layout = new QVBoxLayout(panel);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(8);
+
+    auto* titleLabel = new QLabel(title, panel);
+    {
+        QFont f = titleLabel->font();
+        f.setBold(true);
+        titleLabel->setFont(f);
+    }
+    layout->addWidget(titleLabel);
+
+    preview->setFixedSize(180, 270);
+    preview->setAlignment(Qt::AlignCenter);
+    preview->setStyleSheet(QStringLiteral("border:1px solid %1;background:%2;")
+        .arg(Theme::current().border.name(), Theme::current().panel2.name()));
+    layout->addWidget(preview);
+
+    auto* choose = new QPushButton(tr("Choose image..."), panel);
+    auto* clear = new QPushButton(tr("Clear"), panel);
+    layout->addWidget(choose);
+    layout->addWidget(clear);
+    layout->addStretch();
+
+    if (chooseButton) *chooseButton = choose;
+    if (clearButton) *clearButton = clear;
+    return panel;
+}
+
 void EditMovieDialog::addGenre_(const QString& genre)
 {
     const QString g = genre.trimmed();
@@ -630,15 +652,42 @@ void EditMovieDialog::updateCoverPreview_(QLabel* label, const QString& path)
                                 Qt::SmoothTransformation));
 }
 
-void EditMovieDialog::pickCover_(QLineEdit* edit, QLabel* preview)
+void EditMovieDialog::loadTmdbPosterPreview_(const QString& posterPath)
 {
-    if (!edit) return;
+    if (!m_tmdb || !m_tmdb->network() || posterPath.isEmpty() || !m_coverFrontPreview)
+        return;
+
+    const QString url = m_tmdb->imageUrl(posterPath, QStringLiteral("w342"));
+    if (url.isEmpty()) return;
+
+    QPointer<QLabel> guard(m_coverFrontPreview);
+    auto* reply = m_tmdb->network()->get(QNetworkRequest(QUrl(url)));
+    connect(reply, &QNetworkReply::finished, this, [reply, guard]() {
+        reply->deleteLater();
+        if (!guard || reply->error() != QNetworkReply::NoError) return;
+        QPixmap pix;
+        pix.loadFromData(reply->readAll());
+        if (!pix.isNull())
+            guard->setPixmap(pix.scaled(guard->size(), Qt::KeepAspectRatio,
+                                        Qt::SmoothTransformation));
+    });
+}
+
+void EditMovieDialog::pickCover_(bool front)
+{
     const QString file = QFileDialog::getOpenFileName(
         this, tr("Select cover image"), {},
         tr("Images (*.jpg *.jpeg *.png *.webp *.bmp);;All files (*.*)"));
     if (file.isEmpty()) return;
-    edit->setText(file);
-    updateCoverPreview_(preview, file);
+
+    if (front) {
+        m_pendingFrontCoverPath = file;
+        m_tmdbPosterPath.clear();
+        updateCoverPreview_(m_coverFrontPreview, file);
+    } else {
+        m_pendingBackCoverPath = file;
+        updateCoverPreview_(m_coverBackPreview, file);
+    }
 }
 
 void EditMovieDialog::commit_()
@@ -666,8 +715,6 @@ void EditMovieDialog::commit_()
     m_movie.genres        = m_genres;
     m_movie.overview      = m_overview->toPlainText();
     m_movie.notes         = m_notes->toPlainText();
-    m_movie.coverFrontPath = m_coverFront->text().trimmed();
-    m_movie.coverBackPath  = m_coverBack->text().trimmed();
 
     const QDate d = m_purchaseDate->date();
     m_movie.purchase.date = (d == kNoDate) ? QDate() : d;

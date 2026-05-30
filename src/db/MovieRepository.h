@@ -43,6 +43,7 @@ public:
     // used after a poster download. `absolutePath` is relativized to the
     // library root like any other cover path.
     bool setCoverFront(const QString& id, const QString& absolutePath);
+    bool setCoverBack(const QString& id, const QString& absolutePath);
 
     // Insert many movies inside a single transaction. Faster for imports.
     // Returns true on success; on failure the transaction is rolled back
