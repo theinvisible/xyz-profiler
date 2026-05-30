@@ -28,6 +28,7 @@ public:
         DirectorNameRole,        // first credit with creditType == "Direction"
         RatingValueRole,
         RatingAgeRole,
+        ReviewFilmRole,          // user's own film rating (0-10); matches tree Rating sort
         GenresJoinedRole,        // ", "-joined for label rendering
         StudiosJoinedRole,
         CaseTypeRole,

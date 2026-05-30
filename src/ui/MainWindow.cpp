@@ -24,6 +24,7 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -43,18 +44,21 @@ namespace xyz {
 namespace {
 
 // Map a tree-view column to the cover grid's sort role name (see
-// MovieListModel::roleNames()). Columns the grid can't represent fall back to
-// title, so both views stay roughly in sync.
+// MovieListModel::roleNames()). The role keys are chosen to match exactly what
+// MovieTreeModel::columnData returns for Qt::UserRole, so a column sorted in
+// the list view produces the same order in the grid. Columns the grid can't
+// represent fall back to the sort title.
 QString gridRoleForColumn(int column)
 {
     switch (column) {
+    case MovieTreeModel::Title:    return QStringLiteral("sortTitle");
     case MovieTreeModel::Year:     return QStringLiteral("year");
     case MovieTreeModel::Runtime:  return QStringLiteral("runtime");
     case MovieTreeModel::Format:   return QStringLiteral("format");
-    case MovieTreeModel::Rating:   return QStringLiteral("ratingValue");
+    case MovieTreeModel::Rating:   return QStringLiteral("reviewFilm");
     case MovieTreeModel::Genres:   return QStringLiteral("genresJoined");
     case MovieTreeModel::Director: return QStringLiteral("directorName");
-    default:                       return QStringLiteral("title");
+    default:                       return QStringLiteral("sortTitle");
     }
 }
 
@@ -295,6 +299,9 @@ void MainWindow::buildCentralWidget_()
         m_settings->setTableSortDescending(order == Qt::DescendingOrder);
         m_controller->sortProxy()->sortByRole(
             gridRoleForColumn(column), order == Qt::DescendingOrder);
+        // The cover grid sits behind a second (filter-only) proxy; force it to
+        // re-map so it reflects the inner proxy's new order immediately.
+        m_gridFilterProxy->invalidate();
     });
 
     m_viewStack->addWidget(m_treeView);
@@ -326,9 +333,12 @@ void MainWindow::buildCentralWidget_()
     connect(m_coverGrid, &CoverGridWidget::movieClicked,
             m_controller, &LibraryController::selectMovie);
 
-    connect(m_treeView, &QAbstractItemView::clicked, this,
-            [this](const QModelIndex& idx) {
-        const auto srcIdx = m_treeSortProxy->mapToSource(idx);
+    // currentChanged (not clicked) so arrow-key navigation also drives the
+    // detail pane, not just mouse clicks.
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::currentChanged,
+            this, [this](const QModelIndex& cur, const QModelIndex&) {
+        if (!cur.isValid()) return;
+        const auto srcIdx = m_treeSortProxy->mapToSource(cur);
         const QString id = m_controller->treeModel()->movieIdAtIndex(srcIdx);
         if (!id.isEmpty()) m_controller->selectMovie(id);
     });
@@ -570,6 +580,7 @@ void MainWindow::applySavedSort_()
     m_restoringSort = false;
 
     m_controller->sortProxy()->sortByRole(gridRoleForColumn(col), desc);
+    m_gridFilterProxy->invalidate();
 }
 
 void MainWindow::toggleTheme_()

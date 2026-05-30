@@ -5,6 +5,7 @@
 #include "ui/CoverCache.h"
 #include "ui/Theme.h"
 
+#include <QItemSelectionModel>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPixmapCache>
@@ -257,16 +258,20 @@ CoverGridWidget::CoverGridWidget(QWidget* parent)
     viewport()->setAutoFillBackground(false);
 
     setItemDelegate(new CoverDelegate(this));
-
-    connect(this, &QAbstractItemView::clicked,
-            this, &CoverGridWidget::onItemActivated);
-    connect(this, &QAbstractItemView::activated,
-            this, &CoverGridWidget::onItemActivated);
 }
 
 void CoverGridWidget::setModel(QAbstractItemModel* model)
 {
     QListView::setModel(model);
+
+    // Drive selection from the current index (changes on both mouse click and
+    // keyboard arrow navigation) so the detail pane follows cursor movement,
+    // not just clicks. selectionModel() only exists after setModel().
+    if (auto* sel = selectionModel())
+        connect(sel, &QItemSelectionModel::currentChanged, this,
+                [this](const QModelIndex& cur, const QModelIndex&) {
+            onItemActivated(cur);
+        });
 }
 
 void CoverGridWidget::onItemActivated(const QModelIndex& index)

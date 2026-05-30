@@ -48,6 +48,7 @@ QVariant MovieListModel::data(const QModelIndex& index, int role) const
     case DirectorNameRole:     return primaryDirector(m);
     case RatingValueRole:      return m.rating.value;
     case RatingAgeRole:        return m.rating.age;
+    case ReviewFilmRole:       return m.review.film;
     case GenresJoinedRole:     return m.genres.join(QStringLiteral(", "));
     case StudiosJoinedRole:    return m.studios.join(QStringLiteral(", "));
     case CaseTypeRole:         return m.caseType;
@@ -75,6 +76,7 @@ QHash<int, QByteArray> MovieListModel::roleNames() const
         {DirectorNameRole,   "directorName"},
         {RatingValueRole,    "ratingValue"},
         {RatingAgeRole,      "ratingAge"},
+        {ReviewFilmRole,     "reviewFilm"},
         {GenresJoinedRole,   "genresJoined"},
         {StudiosJoinedRole,  "studiosJoined"},
         {CaseTypeRole,       "caseType"},
