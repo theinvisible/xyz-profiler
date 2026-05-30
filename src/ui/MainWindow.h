@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QMainWindow>
+#include <QStringList>
 
 class QAction;
 class QComboBox;
@@ -55,6 +56,7 @@ private:
     void showBulkMatchDialog_(const QStringList& movieIds);
     void onBulkMatchStateChanged_();
     QStringList selectedMovieIds_() const;   // ids selected in the active view
+    QStringList bulkMatchTargetIds_(const QStringList& movieIds) const;
     void updateBulkActionEnabled_();         // enable Match button per selection
     void showSettingsDialog_();
     void showAbout_();

@@ -33,6 +33,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QSet>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStackedWidget>
@@ -260,12 +261,12 @@ void MainWindow::buildCentralWidget_()
     m_splitter = new QSplitter(Qt::Horizontal);
     m_viewStack = new QStackedWidget;
 
-    // ---- Cover grid (index 0) — filter out box-set children ----------------
+    // ---- Cover grid (index 0) — hide box-set parent titles -----------------
     m_gridFilterProxy = new QSortFilterProxyModel(this);
     m_gridFilterProxy->setSourceModel(m_controller->sortProxy());
-    m_gridFilterProxy->setFilterRole(MovieListModel::BoxSetParentIdRole);
+    m_gridFilterProxy->setFilterRole(MovieListModel::IsBoxSetParentRole);
     m_gridFilterProxy->setFilterRegularExpression(
-        QRegularExpression(QStringLiteral("^$")));
+        QRegularExpression(QStringLiteral("^false$")));
 
     m_coverGrid = new CoverGridWidget;
     m_coverGrid->setModel(m_gridFilterProxy);
@@ -774,11 +775,12 @@ void MainWindow::showMovieContextMenu_(const QString& movieId, const QPoint& glo
     // right-clicked row isn't part of the current selection, fall back to it.
     QStringList bulkIds = selectedMovieIds_();
     if (!bulkIds.contains(movieId)) bulkIds = { movieId };
+    const QStringList targetIds = bulkMatchTargetIds_(bulkIds);
     menu.addSeparator();
     QAction* matchAct = menu.addAction(
         IconFactory::icon(QStringLiteral("refresh"), p.text2, 16),
-        bulkIds.size() > 1 ? tr("Match %n title(s) on TMDb…", "", bulkIds.size())
-                           : tr("Match on TMDb…"));
+        targetIds.size() > 1 ? tr("Match %n title(s) on TMDb…", "", targetIds.size())
+                             : tr("Match on TMDb…"));
 
     QAction* chosen = menu.exec(globalPos);
     if (chosen == editAct)       showEditDialog_(movieId);
@@ -811,15 +813,60 @@ QStringList MainWindow::selectedMovieIds_() const
     return ids;
 }
 
+QStringList MainWindow::bulkMatchTargetIds_(const QStringList& movieIds) const
+{
+    QStringList out;
+    QSet<QString> seen;
+
+    const auto appendId = [&out, &seen](const QString& id) {
+        if (id.isEmpty() || seen.contains(id)) return;
+        seen.insert(id);
+        out << id;
+    };
+
+    const auto* model = m_controller ? m_controller->listModel() : nullptr;
+    if (!model) {
+        for (const QString& id : movieIds)
+            appendId(id);
+        return out;
+    }
+
+    for (const QString& id : movieIds) {
+        const Movie* movie = model->find(id);
+        if (!movie) {
+            appendId(id);
+            continue;
+        }
+
+        if (!movie->boxSet.isParent) {
+            appendId(id);
+            continue;
+        }
+
+        for (const QString& childId : movie->boxSet.childIds) {
+            if (model->find(childId))
+                appendId(childId);
+        }
+
+        for (const Movie& candidate : model->movies()) {
+            if (candidate.boxSet.parentId == movie->id)
+                appendId(candidate.id);
+        }
+    }
+
+    return out;
+}
+
 void MainWindow::updateBulkActionEnabled_()
 {
     if (m_matchBtn)
-        m_matchBtn->setEnabled(!selectedMovieIds_().isEmpty());
+        m_matchBtn->setEnabled(!bulkMatchTargetIds_(selectedMovieIds_()).isEmpty());
 }
 
 void MainWindow::showBulkMatchDialog_(const QStringList& movieIds)
 {
-    if (movieIds.isEmpty()) return;
+    const QStringList targetIds = bulkMatchTargetIds_(movieIds);
+    if (targetIds.isEmpty()) return;
     if (!m_controller->libraryOpen()) {
         QMessageBox::information(this, tr("Match on TMDb"),
             tr("Open a library before matching titles."));
@@ -833,8 +880,8 @@ void MainWindow::showBulkMatchDialog_(const QStringList& movieIds)
 
     // Resolve ids to full Movie objects from the list model.
     QList<Movie> movies;
-    movies.reserve(movieIds.size());
-    for (const QString& id : movieIds)
+    movies.reserve(targetIds.size());
+    for (const QString& id : targetIds)
         if (const Movie* m = m_controller->listModel()->find(id))
             movies.append(*m);
     if (movies.isEmpty()) return;
