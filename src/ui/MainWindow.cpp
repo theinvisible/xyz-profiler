@@ -35,6 +35,7 @@
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
@@ -401,6 +402,18 @@ void MainWindow::setupTreeColumnVisibility_()
 // ---------------------------------------------------------------------------
 void MainWindow::connectController_()
 {
+    // Debounce timer for the detail pane: a selection change (re)starts it, and
+    // only the trailing tick rebuilds the pane — so holding an arrow key skips
+    // the intermediate rows. ~70 ms is below the key-repeat interval, so a held
+    // key keeps resetting it and the pane updates the moment navigation pauses.
+    m_detailUpdateTimer = new QTimer(this);
+    m_detailUpdateTimer->setSingleShot(true);
+    m_detailUpdateTimer->setInterval(70);
+    connect(m_detailUpdateTimer, &QTimer::timeout, this, [this] {
+        if (m_controller->hasSelection())
+            m_detailPane->updateFromMovie(m_controller->selectedMovie());
+    });
+
     connect(m_controller, &LibraryController::moviesChanged,
             this, &MainWindow::onMoviesChanged_);
     connect(m_controller, &LibraryController::selectionChanged,
@@ -473,13 +486,17 @@ void MainWindow::onSelectionChanged_()
 {
     if (m_controller->hasSelection()) {
         const Movie& m = m_controller->selectedMovie();
-        m_detailPane->updateFromMovie(m);
+        // Status-bar text is cheap — update it now for instant feedback. The
+        // heavy detail-pane rebuild is deferred via the debounce timer so rapid
+        // cursor navigation doesn't rebuild the pane for every passed-over row.
         QStringList parts;
         parts << m.title;
         if (!m.format.isEmpty())   parts << m.format;
         if (!m.locationId.isEmpty()) parts << m.locationId;
         m_selectionLabel->setText(parts.join(QStringLiteral("  ·  ")));
+        m_detailUpdateTimer->start();
     } else {
+        m_detailUpdateTimer->stop();
         m_detailPane->clearSelection();
         m_selectionLabel->setText(tr("No movie selected"));
     }

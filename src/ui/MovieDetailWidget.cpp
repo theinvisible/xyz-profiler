@@ -403,6 +403,10 @@ void MovieDetailWidget::buildTabs_(QVBoxLayout* contentLayout)
         m_tabs->addTab(area, tr("Notes"));
     }
 
+    // Fill a tab the first time it becomes visible for the current movie.
+    connect(m_tabs, &QTabWidget::currentChanged, this,
+            [this](int index) { populateTab_(index); });
+
     contentLayout->addWidget(m_tabs, 1);
 }
 
@@ -428,12 +432,28 @@ void MovieDetailWidget::updateFromMovie(const Movie& movie)
 
     setUpdatesEnabled(false);
     populateHeader_(movie);
-    populateOverview_(movie);
-    populateCast_(movie);
-    populateTech_(movie);
-    populateNotes_(movie);
-    if (m_tabs) m_tabs->setCurrentIndex(0);
+
+    // Lazily populate tabs: only rebuild the one the user is looking at; the
+    // others are marked stale and filled when switched to. Rebuilding all four
+    // (esp. the per-actor Cast & Crew widgets) on every selection change is
+    // what made cursor navigation feel sluggish. The current tab is kept
+    // across movies rather than reset to Overview.
+    for (bool& done : m_tabPopulated) done = false;
+    populateTab_(m_tabs ? m_tabs->currentIndex() : TabOverview);
     setUpdatesEnabled(true);
+}
+
+void MovieDetailWidget::populateTab_(int index)
+{
+    if (index < 0 || index >= TabCount || m_tabPopulated[index]) return;
+    switch (index) {
+    case TabOverview: populateOverview_(m_current); break;
+    case TabCast:     populateCast_(m_current);     break;
+    case TabTech:     populateTech_(m_current);     break;
+    case TabNotes:    populateNotes_(m_current);    break;
+    default: return;
+    }
+    m_tabPopulated[index] = true;
 }
 
 void MovieDetailWidget::populateHeader_(const Movie& m)

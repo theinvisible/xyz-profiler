@@ -10,6 +10,7 @@ class QProgressDialog;
 class QSortFilterProxyModel;
 class QSplitter;
 class QStackedWidget;
+class QTimer;
 class QToolButton;
 class QTreeView;
 
@@ -90,6 +91,10 @@ private:
     QSortFilterProxyModel* m_treeSortProxy   = nullptr;
     MovieDetailWidget*     m_detailPane      = nullptr;
     bool                   m_restoringSort   = false;
+
+    // Coalesces rapid selection changes (held arrow key) so the heavy detail
+    // pane rebuild runs once when navigation settles, not once per row.
+    QTimer*                m_detailUpdateTimer = nullptr;
 
     // Progress
     QProgressDialog*       m_progressDlg     = nullptr;

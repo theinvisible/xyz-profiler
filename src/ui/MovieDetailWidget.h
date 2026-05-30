@@ -50,10 +50,19 @@ private:
     void populateTech_(const Movie& m);
     void populateNotes_(const Movie& m);
 
+    // Tab indices, in the order buildTabs_ adds them.
+    enum Tab { TabOverview = 0, TabCast, TabTech, TabNotes, TabCount };
+    // Populate one tab from m_current if it hasn't been populated for the
+    // current movie yet. updateFromMovie only fills the visible tab; the rest
+    // are filled on demand when the user switches to them. This keeps each
+    // selection change cheap (header + one tab) instead of rebuilding all four.
+    void populateTab_(int index);
+
     // --- Top-level ----------------------------------------------------------
     QStackedWidget* m_stack       = nullptr;   // 0 = placeholder, 1 = content
     bool            m_hasMovie    = false;
     Movie           m_current;
+    bool            m_tabPopulated[TabCount] = {false, false, false, false};
 
     // --- Header -------------------------------------------------------------
     QLabel*      m_cover     = nullptr;
