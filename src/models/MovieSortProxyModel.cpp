@@ -1,5 +1,8 @@
 #include "MovieSortProxyModel.h"
 
+#include <QDate>
+#include <QDateTime>
+
 namespace xyz {
 
 MovieSortProxyModel::MovieSortProxyModel(QObject* parent)
@@ -54,9 +57,18 @@ bool MovieSortProxyModel::lessThan(const QModelIndex& left,
     const QVariant l = sourceModel()->data(left, sortRole());
     const QVariant r = sourceModel()->data(right, sortRole());
 
-    if (l.typeId() == QMetaType::Int)  return l.toInt() < r.toInt();
-    if (l.typeId() == QMetaType::Bool) return !l.toBool() && r.toBool();
-    return l.toString().compare(r.toString(), Qt::CaseInsensitive) < 0;
+    if (l.typeId() == QMetaType::Int)       return l.toInt() < r.toInt();
+    if (l.typeId() == QMetaType::Bool)      return !l.toBool() && r.toBool();
+    // Dates compare chronologically, not as formatted strings — otherwise the
+    // cover grid sorts e.g. PurchaseDate lexicographically and diverges from
+    // the list view.
+    if (l.typeId() == QMetaType::QDate)     return l.toDate() < r.toDate();
+    if (l.typeId() == QMetaType::QDateTime) return l.toDateTime() < r.toDateTime();
+    // Strings: localeAwareCompare to match the list view, whose tree sort proxy
+    // has setSortLocaleAware(true) (Qt's default lessThan then compares strings
+    // the same way). Using a plain case-insensitive compare here produced a
+    // different order than the list view for the same column.
+    return l.toString().localeAwareCompare(r.toString()) < 0;
 }
 
 void MovieSortProxyModel::ensureRoleCache_() const

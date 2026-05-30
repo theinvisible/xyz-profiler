@@ -52,14 +52,24 @@ namespace {
 QString gridRoleForColumn(int column)
 {
     switch (column) {
-    case MovieTreeModel::Title:    return QStringLiteral("sortTitle");
-    case MovieTreeModel::Year:     return QStringLiteral("year");
-    case MovieTreeModel::Runtime:  return QStringLiteral("runtime");
-    case MovieTreeModel::Format:   return QStringLiteral("format");
-    case MovieTreeModel::Rating:   return QStringLiteral("reviewFilm");
-    case MovieTreeModel::Genres:   return QStringLiteral("genresJoined");
-    case MovieTreeModel::Director: return QStringLiteral("directorName");
-    default:                       return QStringLiteral("sortTitle");
+    case MovieTreeModel::Title:         return QStringLiteral("sortTitle");
+    case MovieTreeModel::OriginalTitle: return QStringLiteral("originalTitle");
+    case MovieTreeModel::SortTitle:     return QStringLiteral("sortTitle");
+    case MovieTreeModel::Year:          return QStringLiteral("year");
+    case MovieTreeModel::Runtime:       return QStringLiteral("runtime");
+    case MovieTreeModel::Format:        return QStringLiteral("format");
+    case MovieTreeModel::Rating:        return QStringLiteral("reviewFilm");
+    case MovieTreeModel::RatingAge:     return QStringLiteral("ratingAge");
+    case MovieTreeModel::Director:      return QStringLiteral("directorName");
+    case MovieTreeModel::Genres:        return QStringLiteral("genresJoined");
+    case MovieTreeModel::Studios:       return QStringLiteral("studiosJoined");
+    case MovieTreeModel::CaseType:      return QStringLiteral("caseType");
+    case MovieTreeModel::AspectRatio:   return QStringLiteral("aspectRatio");
+    case MovieTreeModel::TmdbId:        return QStringLiteral("tmdbId");
+    case MovieTreeModel::PurchaseDate:  return QStringLiteral("purchaseDate");
+    case MovieTreeModel::Loaned:        return QStringLiteral("isLoaned");
+    case MovieTreeModel::BoxSetParent:  return QStringLiteral("isBoxSetParent");
+    default:                            return QStringLiteral("sortTitle");
     }
 }
 

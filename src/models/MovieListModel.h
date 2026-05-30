@@ -34,6 +34,7 @@ public:
         CaseTypeRole,
         AspectRatioRole,
         TmdbIdRole,
+        PurchaseDateRole,        // QDate; matches tree PurchaseDate column sort
         BoxSetParentIdRole,
         IsLoanedRole,
         IsBoxSetParentRole

@@ -54,6 +54,7 @@ QVariant MovieListModel::data(const QModelIndex& index, int role) const
     case CaseTypeRole:         return m.caseType;
     case AspectRatioRole:      return m.videoFormat.aspectRatio;
     case TmdbIdRole:           return m.tmdbId;
+    case PurchaseDateRole:     return m.purchase.date;
     case BoxSetParentIdRole:   return m.boxSet.parentId;
     case IsLoanedRole:         return m.loan.loaned;
     case IsBoxSetParentRole:   return m.boxSet.isParent;
@@ -82,6 +83,7 @@ QHash<int, QByteArray> MovieListModel::roleNames() const
         {CaseTypeRole,       "caseType"},
         {AspectRatioRole,    "aspectRatio"},
         {TmdbIdRole,         "tmdbId"},
+        {PurchaseDateRole,   "purchaseDate"},
         {BoxSetParentIdRole, "boxSetParentId"},
         {IsLoanedRole,       "isLoaned"},
         {IsBoxSetParentRole, "isBoxSetParent"},

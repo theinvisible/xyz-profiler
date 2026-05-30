@@ -168,14 +168,20 @@ QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
         }
     }
     if (role == Qt::UserRole) {
+        // This is the sort key (the tree's sort proxy uses Qt::UserRole). Keys
+        // must mirror the cover grid's sort roles exactly (see
+        // MainWindow::gridRoleForColumn + MovieListModel) so both views order
+        // identically: Title sorts by sortTitle, Rating by the user's star
+        // rating (review.film) — the value the Rating column actually paints —
+        // not the FSK content rating shown as text.
         switch (col) {
-        case Title:         return m.title;
+        case Title:         return m.sortTitle.isEmpty() ? m.title : m.sortTitle;
         case OriginalTitle: return m.originalTitle;
         case SortTitle:     return m.sortTitle.isEmpty() ? m.title : m.sortTitle;
         case Year:          return m.productionYear;
         case Runtime:       return m.runningTimeMinutes;
         case Format:        return m.format;
-        case Rating:        return m.rating.value;
+        case Rating:        return m.review.film;
         case RatingAge:     return m.rating.age;
         case Director:      return primaryDirector(m);
         case Genres:        return m.genres.join(QStringLiteral(", "));
