@@ -59,19 +59,19 @@ QMenu::item:disabled { color: @text3@; }
 QMenu::separator { height: 1px; background: @border@; margin: 5px 8px; }
 
 /* ---- Toolbar ---- */
-QToolBar { background: @panel@; border: none; border-bottom: 1px solid @border@; spacing: 6px; padding: 8px 14px; }
+QToolBar { background: @panel@; border: none; border-bottom: 1px solid @border@; spacing: 5px; padding: 2px 10px; }
 QToolBar::separator { background: transparent; width: 6px; }
 
-QToolButton { background: @panel2@; border: 1px solid @borderStrong@; border-radius: 6px; color: @text@; padding: 6px 13px; font-weight: 500; }
+QToolButton { background: @panel2@; border: 1px solid @borderStrong@; border-radius: 6px; color: @text@; padding: 4px 11px; font-weight: 500; }
 QToolButton:hover { background: @hover@; }
 QToolButton:disabled { color: @text3@; }
 QToolButton:checked { background: @accent@; color: @accentFg@; border-color: transparent; }
 QToolButton::menu-indicator { image: none; }
 
-QToolButton#tbPrimary { background: @accent@; color: @accentFg@; border: none; padding: 7px 15px; font-weight: 600; }
+QToolButton#tbPrimary { background: @accent@; color: @accentFg@; border: none; padding: 5px 13px; font-weight: 600; }
 QToolButton#tbPrimary:hover { background: @accentHover@; }
 QToolButton#tbPrimary:disabled { background: @panel3@; color: @text3@; }
-QToolButton#tbIcon { padding: 6px; }
+QToolButton#tbIcon { padding: 4px; }
 QToolButton#tbIcon:hover { background: @hover@; }
 
 /* segmented list/grid toggle */

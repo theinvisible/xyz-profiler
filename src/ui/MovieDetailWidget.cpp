@@ -195,7 +195,7 @@ void MovieDetailWidget::buildUi_()
     lb->addWidget(m_loanText, 1);
     auto* bannerWrap = new QWidget;
     auto* bw = new QVBoxLayout(bannerWrap);
-    bw->setContentsMargins(22, 0, 22, 6);
+    bw->setContentsMargins(16, 0, 16, 5);
     bw->addWidget(m_loanBanner);
     cl->addWidget(bannerWrap);
 
@@ -208,8 +208,8 @@ void MovieDetailWidget::buildHeader_(QVBoxLayout* contentLayout)
 {
     auto* head = new QWidget;
     auto* h = new QHBoxLayout(head);
-    h->setContentsMargins(22, 22, 22, 18);
-    h->setSpacing(18);
+    h->setContentsMargins(16, 12, 16, 10);
+    h->setSpacing(14);
 
     m_cover = new QLabel;
     m_cover->setFixedSize(150, 225);
@@ -285,7 +285,7 @@ void MovieDetailWidget::buildTabs_(QVBoxLayout* contentLayout)
         area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
         auto* page = new QWidget;
         outLayout = new QVBoxLayout(page);
-        outLayout->setContentsMargins(22, 20, 22, 26);
+        outLayout->setContentsMargins(16, 12, 16, 16);
         outLayout->setSpacing(0);
         area->setWidget(page);
         return area;
