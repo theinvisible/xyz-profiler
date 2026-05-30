@@ -5,7 +5,6 @@
 #include "models/MovieListModel.h"
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
-#include "ui/AddTitleDialog.h"
 #include "ui/BulkTmdbMatchDialog.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
@@ -33,6 +32,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QProgressDialog>
+#include <QDateTime>
 #include <QSet>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -42,6 +42,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUuid>
 #include <QVBoxLayout>
 
 namespace xyz {
@@ -714,15 +715,24 @@ void MainWindow::showAddTitleDialog_()
             tr("Open a library before adding titles."));
         return;
     }
-    if (!m_tmdb || !m_tmdb->hasApiKey()) {
-        QMessageBox::information(this, tr("Add a Title"),
-            tr("TMDb is not configured. Set your TMDb API key in Settings first."));
-        return;
-    }
-    AddTitleDialog dlg(m_tmdb, this);
-    if (dlg.exec() == QDialog::Accepted && dlg.selectedTmdbId() > 0)
-        m_controller->addMovieFromTmdb(dlg.selectedTmdbId(), dlg.selectedFormat(),
-                                       dlg.selectedPosterPath());
+
+    Movie movie;
+    movie.id = QStringLiteral("manual:%1").arg(
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+    movie.format = QStringLiteral("DVD");
+    movie.membership.type = QStringLiteral("Owned");
+    movie.membership.isPartOfOwnedCollection = true;
+    movie.profileTimestamp = QDateTime::currentDateTime();
+    movie.lastEdited = movie.profileTimestamp;
+
+    EditMovieDialog dlg(movie, m_tmdb, true, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    const Movie edited = dlg.editedMovie();
+    m_controller->updateMovie(edited);
+    m_controller->selectMovie(edited.id);
+    if (!dlg.tmdbPosterPath().isEmpty())
+        m_controller->downloadTmdbPosterForMovie(edited.id, dlg.tmdbPosterPath());
 }
 
 void MainWindow::showEditDialog_(const QString& movieId)
@@ -733,9 +743,13 @@ void MainWindow::showEditDialog_(const QString& movieId)
         m_controller->selectMovie(movieId);
     if (!m_controller->hasSelection()) return;
 
-    EditMovieDialog dlg(m_controller->selectedMovie(), this);
-    if (dlg.exec() == QDialog::Accepted)
-        m_controller->updateMovie(dlg.editedMovie());
+    EditMovieDialog dlg(m_controller->selectedMovie(), m_tmdb, false, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        const Movie edited = dlg.editedMovie();
+        m_controller->updateMovie(edited);
+        if (!dlg.tmdbPosterPath().isEmpty())
+            m_controller->downloadTmdbPosterForMovie(edited.id, dlg.tmdbPosterPath());
+    }
 }
 
 void MainWindow::confirmDeleteMovie_(const QString& movieId)

@@ -92,6 +92,7 @@ public:
     // `format` is the disc format the user chose ("DVD" / "BluRay" / "UHD").
     void addMovieFromTmdb(int tmdbId, const QString& format,
                           const QString& posterPath = {});
+    void downloadTmdbPosterForMovie(const QString& movieId, const QString& posterPath);
 
     // Bulk-link many movies to TMDb at once. Writes only the tmdbId of each
     // match on a worker thread (one transaction), then — if downloadPosters —

@@ -575,6 +575,15 @@ void LibraryController::addMovieFromTmdb(int tmdbId, const QString& format,
     m_tmdb->getMovie(tmdbId);
 }
 
+void LibraryController::downloadTmdbPosterForMovie(const QString& movieId,
+                                                   const QString& posterPath)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    if (!m_tmdb || !m_tmdb->hasApiKey()) return;
+    if (movieId.isEmpty() || posterPath.isEmpty()) return;
+    downloadTmdbPoster_(movieId, posterPath);
+}
+
 void LibraryController::clearTmdbCandidates()
 {
     if (m_tmdbCandidates.isEmpty() && m_tmdbSearchError.isEmpty()) return;
