@@ -18,6 +18,17 @@ public:
         AspectRatio, TmdbId, PurchaseDate, Loaned, BoxSetParent, ColumnCount
     };
 
+    // Column-independent roles for the custom row delegate — return movie-level
+    // data regardless of which column index is queried.
+    enum Roles {
+        CoverPathRole = Qt::UserRole + 100,
+        IsLoanedRole,
+        ReviewFilmRole,      // user's own film rating, 0-10
+        FormatNameRole,      // raw format string ("DVD" / "BluRay" / "UHD")
+        IsBoxSetParentRole,
+        AgeRole,             // content-rating age (FSK)
+    };
+
     explicit MovieTreeModel(QObject* parent = nullptr);
     ~MovieTreeModel() override;
 

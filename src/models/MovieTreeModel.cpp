@@ -135,6 +135,17 @@ QString MovieTreeModel::primaryDirector(const Movie& m)
 
 QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
 {
+    // Column-independent custom roles for the row delegate.
+    switch (role) {
+    case CoverPathRole:      return m.coverFrontPath;
+    case IsLoanedRole:       return m.loan.loaned;
+    case ReviewFilmRole:     return m.review.film;
+    case FormatNameRole:     return m.format;
+    case IsBoxSetParentRole: return m.boxSet.isParent;
+    case AgeRole:            return m.rating.age;
+    default: break;
+    }
+
     if (role == Qt::DisplayRole) {
         switch (col) {
         case Title:         return m.title;

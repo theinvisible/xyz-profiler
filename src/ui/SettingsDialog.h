@@ -1,27 +1,20 @@
 #pragma once
 
-#include <QCheckBox>
-#include <QComboBox>
 #include <QDialog>
-#include <QDialogButtonBox>
-#include <QFileDialog>
-#include <QGroupBox>
-#include <QHBoxLayout>
-#include <QLabel>
-#include <QLineEdit>
-#include <QPainter>
-#include <QPixmap>
-#include <QPushButton>
-#include <QSvgRenderer>
-#include <QVBoxLayout>
+#include <QString>
+
+class QCheckBox;
+class QLineEdit;
+class QStackedWidget;
 
 namespace xyz {
 
 class SettingsController;
 
-// Modal dialog for editing persistent user preferences.  Works on a
-// local copy of every setting; changes are written to the
-// SettingsController only when the user clicks Save.
+// Preferences dialog with a category sidebar (Appearance / Library /
+// Data & Sync / About), ported from the Claude Design layout. Edits a local
+// copy of every setting; changes are committed to the SettingsController only
+// when the user clicks Save.
 class SettingsDialog : public QDialog {
     Q_OBJECT
 
@@ -34,19 +27,21 @@ private:
     void loadFromController();
     void saveToController();
 
+    // Builds a segmented control bound to `value`. `options` is a list of
+    // {storedValue, label} pairs.
+    QWidget* makeSegmented(const QList<QPair<QString, QString>>& options,
+                           QString* value);
+
     SettingsController* m_settings = nullptr;
 
-    // TMDb group
-    QLineEdit*  m_apiKeyEdit   = nullptr;
-    QCheckBox*  m_showKeyCheck = nullptr;
+    QStackedWidget* m_pages = nullptr;
 
-    // Cover images group
-    QLineEdit*  m_imagesDirEdit = nullptr;
+    QString m_theme;   // "Light" | "Dark" | "System"
+    QString m_view;    // "list" | "grid"
 
-    // Theme group
-    QComboBox*  m_themeCombo = nullptr;
-
-    QDialogButtonBox* m_buttonBox = nullptr;
+    QLineEdit* m_apiKeyEdit    = nullptr;
+    QCheckBox* m_showKeyCheck  = nullptr;
+    QLineEdit* m_imagesDirEdit = nullptr;
 };
 
 } // namespace xyz

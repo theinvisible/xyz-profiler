@@ -90,6 +90,16 @@ qt_add_executable(xyz-profiler
     controllers/SettingsController.cpp
     ui/DarkFusionStyle.h
     ui/DarkFusionStyle.cpp
+    ui/Theme.h
+    ui/Theme.cpp
+    ui/IconFactory.h
+    ui/IconFactory.cpp
+    ui/CoverArt.h
+    ui/CoverArt.cpp
+    ui/FlowLayout.h
+    ui/FlowLayout.cpp
+    ui/MovieRowDelegate.h
+    ui/MovieRowDelegate.cpp
     ui/MainWindow.h
     ui/MainWindow.cpp
     ui/CoverGridWidget.h

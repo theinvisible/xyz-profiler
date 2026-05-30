@@ -1,32 +1,38 @@
 #include "MainWindow.h"
 
-#include "ui/DarkFusionStyle.h"
-
 #include "controllers/LibraryController.h"
 #include "controllers/SettingsController.h"
 #include "models/MovieListModel.h"
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 #include "ui/CoverGridWidget.h"
+#include "ui/IconFactory.h"
 #include "ui/ImportPreviewDialog.h"
 #include "ui/MovieDetailWidget.h"
+#include "ui/MovieRowDelegate.h"
 #include "ui/SettingsDialog.h"
+#include "ui/Theme.h"
 #include "ui/TmdbMatchDialog.h"
 
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QComboBox>
 #include <QFileDialog>
+#include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMenuBar>
+#include <QMessageBox>
 #include <QProgressDialog>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
 #include <QToolBar>
+#include <QToolButton>
 #include <QTreeView>
 #include <QVBoxLayout>
 
@@ -41,71 +47,166 @@ MainWindow::MainWindow(LibraryController* controller,
       m_settings(settings),
       m_tmdb(tmdb)
 {
-    setWindowTitle(QStringLiteral("xyz-profiler"));
+    setWindowTitle(QStringLiteral("XYZ Profiler"));
     resize(1400, 900);
 
+    buildMenuBar_();
     buildToolBar_();
     buildCentralWidget_();
     buildStatusBar_();
     connectController_();
     connectSettings_();
 
-    setStyleSheet(DarkFusionStyle::darkStyleSheet());
-
+    refreshIcons_();
     switchView_(m_settings->viewMode());
+    applySort_(0);
     onMoviesChanged_();
+    onSelectionChanged_();
 }
 
 // ---------------------------------------------------------------------------
-// Build
+// Menu bar
 // ---------------------------------------------------------------------------
+void MainWindow::buildMenuBar_()
+{
+    auto* mb = menuBar();
 
+    auto* file = mb->addMenu(tr("&File"));
+    m_actImport = file->addAction(tr("&Import Collection.xml…"),
+                                  this, &MainWindow::showImportDialog_);
+    file->addSeparator();
+    m_actQuit = file->addAction(tr("&Quit"), qApp, &QApplication::quit);
+    m_actQuit->setShortcut(QKeySequence::Quit);
+
+    auto* view = mb->addMenu(tr("&View"));
+    auto* viewGroup = new QActionGroup(this);
+    m_actViewList = view->addAction(tr("&List View"));
+    m_actViewList->setCheckable(true);
+    viewGroup->addAction(m_actViewList);
+    m_actViewGrid = view->addAction(tr("&Grid View"));
+    m_actViewGrid->setCheckable(true);
+    viewGroup->addAction(m_actViewGrid);
+    connect(m_actViewList, &QAction::triggered, this,
+            [this] { m_settings->setViewMode(QStringLiteral("list")); });
+    connect(m_actViewGrid, &QAction::triggered, this,
+            [this] { m_settings->setViewMode(QStringLiteral("grid")); });
+    view->addSeparator();
+    m_actTheme = view->addAction(tr("Toggle &Theme"), this, &MainWindow::toggleTheme_);
+
+    auto* coll = mb->addMenu(tr("&Collection"));
+    m_actRefresh = coll->addAction(tr("&Refresh"),
+                                   m_controller, &LibraryController::refresh);
+    m_actRefresh->setShortcut(QKeySequence::Refresh);
+
+    auto* tools = mb->addMenu(tr("&Tools"));
+    m_actSettings = tools->addAction(tr("&Settings…"),
+                                     this, &MainWindow::showSettingsDialog_);
+    m_actSettings->setShortcut(QKeySequence::Preferences);
+
+    auto* help = mb->addMenu(tr("&Help"));
+    m_actAbout = help->addAction(tr("&About XYZ Profiler…"),
+                                 this, &MainWindow::showAbout_);
+}
+
+// ---------------------------------------------------------------------------
+// Toolbar
+// ---------------------------------------------------------------------------
 void MainWindow::buildToolBar_()
 {
     auto* tb = addToolBar(tr("Main"));
     tb->setMovable(false);
+    tb->setFloatable(false);
     tb->setIconSize(QSize(16, 16));
 
-    tb->addAction(tr("Import Collection.xml…"), this, &MainWindow::showImportDialog_);
-    tb->addSeparator();
+    const auto spacer = [] {
+        auto* w = new QWidget;
+        w->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+        return w;
+    };
 
-    auto* viewGroup = new QActionGroup(this);
-    m_gridAction = viewGroup->addAction(tr("Grid View"));
-    m_gridAction->setCheckable(true);
-    m_listAction = viewGroup->addAction(tr("List View"));
-    m_listAction->setCheckable(true);
-    tb->addActions(viewGroup->actions());
+    // Primary action.
+    m_importBtn = new QToolButton;
+    m_importBtn->setObjectName(QStringLiteral("tbPrimary"));
+    m_importBtn->setText(tr("Import…"));
+    m_importBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    m_importBtn->setToolTip(tr("Import a DVD Profiler Collection.xml"));
+    connect(m_importBtn, &QToolButton::clicked, this, &MainWindow::showImportDialog_);
+    tb->addWidget(m_importBtn);
 
-    connect(m_gridAction, &QAction::triggered, this,
-            [this]() { m_settings->setViewMode(QStringLiteral("grid")); });
-    connect(m_listAction, &QAction::triggered, this,
-            [this]() { m_settings->setViewMode(QStringLiteral("list")); });
+    tb->addWidget(spacer());
 
-    tb->addSeparator();
-
+    // Search.
     m_searchField = new QLineEdit;
-    m_searchField->setPlaceholderText(
-        tr("Search title, actor, director, studio, overview…"));
+    m_searchField->setObjectName(QStringLiteral("searchField"));
+    m_searchField->setPlaceholderText(tr("Search collection…"));
     m_searchField->setClearButtonEnabled(true);
-    m_searchField->setMaximumWidth(400);
-    tb->addWidget(m_searchField);
-
+    m_searchField->setMinimumWidth(220);
+    m_searchField->setMaximumWidth(360);
+    m_searchIcon = m_searchField->addAction(QIcon(), QLineEdit::LeadingPosition);
     connect(m_searchField, &QLineEdit::returnPressed, this,
-            [this]() { m_controller->search(m_searchField->text()); });
+            [this] { m_controller->search(m_searchField->text()); });
     connect(m_searchField, &QLineEdit::textChanged, this,
             [this](const QString& t) { if (t.isEmpty()) m_controller->refresh(); });
+    tb->addWidget(m_searchField);
 
-    auto* spacer = new QWidget;
-    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    tb->addWidget(spacer);
+    tb->addWidget(spacer());
 
-    m_movieCount = new QLabel;
-    tb->addWidget(m_movieCount);
+    // Sort.
+    auto* sortWrap = new QWidget;
+    sortWrap->setObjectName(QStringLiteral("sortWrap"));
+    auto* sortLay = new QHBoxLayout(sortWrap);
+    sortLay->setContentsMargins(10, 0, 4, 0);
+    sortLay->setSpacing(6);
+    m_sortIcon = new QLabel;
+    sortLay->addWidget(m_sortIcon);
+    m_sortCombo = new QComboBox;
+    m_sortCombo->addItem(tr("Title A–Z"));
+    m_sortCombo->addItem(tr("Year"));
+    m_sortCombo->addItem(tr("Rating"));
+    m_sortCombo->addItem(tr("Recently added"));
+    connect(m_sortCombo, &QComboBox::currentIndexChanged, this, &MainWindow::applySort_);
+    sortLay->addWidget(m_sortCombo);
+    tb->addWidget(sortWrap);
 
-    tb->addSeparator();
-    tb->addAction(tr("Settings…"), this, &MainWindow::showSettingsDialog_);
+    // Segmented list/grid toggle.
+    auto* seg = new QWidget;
+    seg->setObjectName(QStringLiteral("viewSeg"));
+    auto* segLay = new QHBoxLayout(seg);
+    segLay->setContentsMargins(2, 2, 2, 2);
+    segLay->setSpacing(2);
+    m_listBtn = new QToolButton;
+    m_listBtn->setObjectName(QStringLiteral("segBtn"));
+    m_listBtn->setCheckable(true);
+    m_listBtn->setToolTip(tr("List view"));
+    connect(m_listBtn, &QToolButton::clicked, this,
+            [this] { m_settings->setViewMode(QStringLiteral("list")); });
+    m_gridBtn = new QToolButton;
+    m_gridBtn->setObjectName(QStringLiteral("segBtn"));
+    m_gridBtn->setCheckable(true);
+    m_gridBtn->setToolTip(tr("Cover view"));
+    connect(m_gridBtn, &QToolButton::clicked, this,
+            [this] { m_settings->setViewMode(QStringLiteral("grid")); });
+    segLay->addWidget(m_listBtn);
+    segLay->addWidget(m_gridBtn);
+    tb->addWidget(seg);
+
+    // Theme + settings.
+    m_themeBtn = new QToolButton;
+    m_themeBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_themeBtn->setToolTip(tr("Toggle light / dark"));
+    connect(m_themeBtn, &QToolButton::clicked, this, &MainWindow::toggleTheme_);
+    tb->addWidget(m_themeBtn);
+
+    m_settingsBtn = new QToolButton;
+    m_settingsBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_settingsBtn->setToolTip(tr("Settings"));
+    connect(m_settingsBtn, &QToolButton::clicked, this, &MainWindow::showSettingsDialog_);
+    tb->addWidget(m_settingsBtn);
 }
 
+// ---------------------------------------------------------------------------
+// Central widget
+// ---------------------------------------------------------------------------
 void MainWindow::buildCentralWidget_()
 {
     auto* splitter = new QSplitter(Qt::Horizontal);
@@ -131,14 +232,16 @@ void MainWindow::buildCentralWidget_()
 
     m_treeView = new QTreeView;
     m_treeView->setModel(m_treeSortProxy);
+    m_treeView->setItemDelegate(new MovieRowDelegate(m_treeView));
     m_treeView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_treeView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_treeView->setSortingEnabled(true);
-    m_treeView->setAlternatingRowColors(true);
+    m_treeView->setAlternatingRowColors(false);
     m_treeView->setRootIsDecorated(true);
     m_treeView->setItemsExpandable(true);
     m_treeView->setAnimated(true);
     m_treeView->setUniformRowHeights(true);
+    m_treeView->setMouseTracking(true);
     m_treeView->header()->setStretchLastSection(true);
     m_treeView->header()->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -164,7 +267,20 @@ void MainWindow::buildCentralWidget_()
     });
 
     setupTreeColumnVisibility_();
-    m_treeView->sortByColumn(MovieTreeModel::PurchaseDate, Qt::DescendingOrder);
+
+    auto* hdr = m_treeView->header();
+    hdr->setStretchLastSection(false);
+    hdr->setSectionResizeMode(MovieTreeModel::Title, QHeaderView::Stretch);
+    hdr->setSectionResizeMode(MovieTreeModel::Year, QHeaderView::ResizeToContents);
+    hdr->setSectionResizeMode(MovieTreeModel::Format, QHeaderView::Fixed);
+    hdr->resizeSection(MovieTreeModel::Format, 110);
+    hdr->setSectionResizeMode(MovieTreeModel::Rating, QHeaderView::Fixed);
+    hdr->resizeSection(MovieTreeModel::Rating, 104);
+    hdr->setSectionResizeMode(MovieTreeModel::Genres, QHeaderView::Interactive);
+    hdr->resizeSection(MovieTreeModel::Genres, 220);
+    hdr->setSectionResizeMode(MovieTreeModel::Director, QHeaderView::Interactive);
+    hdr->resizeSection(MovieTreeModel::Director, 160);
+
     m_viewStack->addWidget(m_treeView);
 
     splitter->addWidget(m_viewStack);
@@ -175,7 +291,8 @@ void MainWindow::buildCentralWidget_()
 
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 0);
-    splitter->setSizes({940, 460});
+    splitter->setSizes({940, 462});
+    splitter->setChildrenCollapsible(false);
     setCentralWidget(splitter);
 
     // ---- Signals -----------------------------------------------------------
@@ -195,7 +312,20 @@ void MainWindow::buildCentralWidget_()
 
 void MainWindow::buildStatusBar_()
 {
-    statusBar()->showMessage(m_controller->statusMessage());
+    auto* sb = statusBar();
+    sb->setSizeGripEnabled(false);
+
+    m_countLabel = new QLabel;
+    sb->addWidget(m_countLabel);
+
+    m_selectionLabel = new QLabel;
+    m_selectionLabel->setAlignment(Qt::AlignCenter);
+    sb->addWidget(m_selectionLabel, 1);
+
+    m_syncIcon = new QLabel;
+    sb->addPermanentWidget(m_syncIcon);
+    m_statusLabel = new QLabel(m_controller->statusMessage());
+    sb->addPermanentWidget(m_statusLabel);
 }
 
 void MainWindow::setupTreeColumnVisibility_()
@@ -204,9 +334,8 @@ void MainWindow::setupTreeColumnVisibility_()
 
     static const QSet<int> defaults = {
         MovieTreeModel::Title, MovieTreeModel::Year,
-        MovieTreeModel::Runtime, MovieTreeModel::Format,
-        MovieTreeModel::Rating, MovieTreeModel::Director,
-        MovieTreeModel::PurchaseDate
+        MovieTreeModel::Genres, MovieTreeModel::Format,
+        MovieTreeModel::Rating
     };
 
     if (saved.isEmpty()) {
@@ -233,7 +362,6 @@ void MainWindow::setupTreeColumnVisibility_()
 // ---------------------------------------------------------------------------
 // Connections
 // ---------------------------------------------------------------------------
-
 void MainWindow::connectController_()
 {
     connect(m_controller, &LibraryController::moviesChanged,
@@ -241,7 +369,7 @@ void MainWindow::connectController_()
     connect(m_controller, &LibraryController::selectionChanged,
             this, &MainWindow::onSelectionChanged_);
     connect(m_controller, &LibraryController::statusMessageChanged, this,
-            [this]() { statusBar()->showMessage(m_controller->statusMessage()); });
+            [this] { m_statusLabel->setText(m_controller->statusMessage()); });
     connect(m_controller, &LibraryController::importStateChanged,
             this, &MainWindow::onImportStateChanged_);
     connect(m_controller, &LibraryController::tmdbStateChanged,
@@ -251,31 +379,66 @@ void MainWindow::connectController_()
 void MainWindow::connectSettings_()
 {
     connect(m_settings, &SettingsController::viewModeChanged, this,
-            [this]() { switchView_(m_settings->viewMode()); });
-    connect(m_settings, &SettingsController::themeNameChanged, this,
-            [this]() {
-        setStyleSheet(m_settings->themeName() == QLatin1String("Dark")
-                          ? DarkFusionStyle::darkStyleSheet()
-                          : QString());
+            [this] { switchView_(m_settings->viewMode()); });
+    connect(m_settings, &SettingsController::themeNameChanged, this, [this] {
+        refreshIcons_();
+        if (m_treeView)  m_treeView->viewport()->update();
+        if (m_coverGrid) m_coverGrid->viewport()->update();
+        if (m_detailPane) m_detailPane->refreshTheme();
     });
+}
+
+// ---------------------------------------------------------------------------
+// Icons (re-tinted on theme change)
+// ---------------------------------------------------------------------------
+void MainWindow::refreshIcons_()
+{
+    const Palette& p = Theme::current();
+    m_importBtn->setIcon(IconFactory::icon(QStringLiteral("add"), p.accentFg, 17));
+    if (m_searchIcon)
+        m_searchIcon->setIcon(IconFactory::icon(QStringLiteral("search"), p.text3, 16));
+    if (m_sortIcon)
+        m_sortIcon->setPixmap(IconFactory::pixmap(QStringLiteral("sort"), p.text2, 15,
+                                                  1.6, devicePixelRatioF()));
+    m_settingsBtn->setIcon(IconFactory::icon(QStringLiteral("settings"), p.text2, 16));
+    m_themeBtn->setIcon(IconFactory::icon(
+        Theme::isDark() ? QStringLiteral("sun") : QStringLiteral("moon"), p.text2, 16));
+
+    // Segmented buttons depend on which is active.
+    const bool isList = (m_settings->viewMode() == QLatin1String("list"));
+    m_listBtn->setIcon(IconFactory::icon(QStringLiteral("list"),
+                                         isList ? p.accentFg : p.text2, 16));
+    m_gridBtn->setIcon(IconFactory::icon(QStringLiteral("grid"),
+                                         !isList ? p.accentFg : p.text2, 16));
+
+    if (m_syncIcon)
+        m_syncIcon->setPixmap(IconFactory::pixmap(QStringLiteral("refresh"), p.text3, 13,
+                                                  1.6, devicePixelRatioF()));
 }
 
 // ---------------------------------------------------------------------------
 // Slots
 // ---------------------------------------------------------------------------
-
 void MainWindow::onMoviesChanged_()
 {
-    m_movieCount->setText(tr("%1 movies").arg(m_controller->movieCount()));
+    m_countLabel->setText(tr("%1 movies").arg(m_controller->movieCount()));
     m_searchField->setEnabled(m_controller->movieCount() > 0);
 }
 
 void MainWindow::onSelectionChanged_()
 {
-    if (m_controller->hasSelection())
-        m_detailPane->updateFromMovie(m_controller->selectedMovie());
-    else
+    if (m_controller->hasSelection()) {
+        const Movie& m = m_controller->selectedMovie();
+        m_detailPane->updateFromMovie(m);
+        QStringList parts;
+        parts << m.title;
+        if (!m.format.isEmpty())   parts << m.format;
+        if (!m.locationId.isEmpty()) parts << m.locationId;
+        m_selectionLabel->setText(parts.join(QStringLiteral("  ·  ")));
+    } else {
         m_detailPane->clearSelection();
+        m_selectionLabel->setText(tr("No movie selected"));
+    }
 }
 
 void MainWindow::onImportStateChanged_()
@@ -345,8 +508,36 @@ void MainWindow::switchView_(const QString& mode)
 {
     const bool isList = (mode == QLatin1String("list"));
     m_viewStack->setCurrentIndex(isList ? 1 : 0);
-    m_gridAction->setChecked(!isList);
-    m_listAction->setChecked(isList);
+    m_listBtn->setChecked(isList);
+    m_gridBtn->setChecked(!isList);
+    if (m_actViewList) m_actViewList->setChecked(isList);
+    if (m_actViewGrid) m_actViewGrid->setChecked(!isList);
+
+    const Palette& p = Theme::current();
+    m_listBtn->setIcon(IconFactory::icon(QStringLiteral("list"),
+                                         isList ? p.accentFg : p.text2, 16));
+    m_gridBtn->setIcon(IconFactory::icon(QStringLiteral("grid"),
+                                         !isList ? p.accentFg : p.text2, 16));
+}
+
+void MainWindow::applySort_(int index)
+{
+    int col = MovieTreeModel::Title;
+    Qt::SortOrder order = Qt::AscendingOrder;
+    switch (index) {
+    case 1: col = MovieTreeModel::Year;         order = Qt::DescendingOrder; break;
+    case 2: col = MovieTreeModel::Rating;       order = Qt::DescendingOrder; break;
+    case 3: col = MovieTreeModel::PurchaseDate; order = Qt::DescendingOrder; break;
+    default: col = MovieTreeModel::Title;        order = Qt::AscendingOrder; break;
+    }
+    m_treeView->sortByColumn(col, order);
+}
+
+void MainWindow::toggleTheme_()
+{
+    m_settings->setThemeName(m_settings->themeName() == QLatin1String("Dark")
+                                 ? QStringLiteral("Light")
+                                 : QStringLiteral("Dark"));
 }
 
 void MainWindow::showImportDialog_()
@@ -362,6 +553,15 @@ void MainWindow::showSettingsDialog_()
 {
     SettingsDialog dlg(m_settings, this);
     dlg.exec();
+}
+
+void MainWindow::showAbout_()
+{
+    QMessageBox::about(this, tr("About XYZ Profiler"),
+        tr("<h3>XYZ Profiler</h3>"
+           "<p>A modern desktop manager for your DVD / Blu-ray / UHD "
+           "collection — a slimmed-down successor to DVD Profiler 4.</p>"
+           "<p>Built with Qt 6 Widgets.</p>"));
 }
 
 } // namespace xyz
