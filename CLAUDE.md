@@ -331,6 +331,21 @@ Things that cost time to rediscover. When you touch one of these, start here.
 - Box-set parents: `MainWindow::bulkMatchTargetIds_` expands a selected parent
   to include its child titles, so matching a set matches its discs too.
 
+### Detail-pane free text (overview / notes) & HTML
+
+- Source descriptions are inconsistent: some carry inline HTML (`<b>`, `<i>`,
+  …), some are plain text. A `QLabel` left on the default `Qt::AutoText` decides
+  per-string via `Qt::mightBeRichText()`, which scans only up to the first `<`
+  **or newline** — so an overview with a line break *before* its first tag (e.g.
+  "The Whale") is treated as plain and shows `<b>` literally, while one whose tag
+  comes first (e.g. "Mortal Kombat") renders. That's the inconsistency users see.
+- Fixed in `MovieDetailWidget`: the overview and notes labels are set to
+  `Qt::RichText`, and text runs through `toDisplayHtml()` (anon namespace) —
+  which renders the markup when a recognised inline tag appears *anywhere*, else
+  HTML-escapes the text (so a stray `<` / `&` stays literal) and turns newlines
+  into `<br>`. **Don't revert these labels to AutoText/PlainText**, and feed any
+  new free-text field through `toDisplayHtml()` for the same consistency.
+
 ### Menu shortcuts & QKeySequence standard keys
 
 - On **Windows**, `QKeySequence::Quit` and `QKeySequence::Preferences` don't

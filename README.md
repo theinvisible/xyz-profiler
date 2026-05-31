@@ -3,7 +3,8 @@
 A desktop manager for personal **DVD / Blu-ray / UHD collections**, built
 as a long-term replacement for the discontinued *DVD Profiler 4*. Imports
 your existing DP4 `Collection.xml` export, persists everything in a local
-SQLite library, and searches/browses with a Material-styled Qt Quick UI.
+SQLite library, and searches/browses with a native **Qt Widgets** UI
+(Fusion, with dark / light / system themes).
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20%2F%20Linux-blue)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-orange)
@@ -19,12 +20,23 @@ SQLite library, and searches/browses with a Material-styled Qt Quick UI.
 - **SQLite-backed library** with versioned schema migrations, automatic
   WAL journal mode, and an **FTS5 index** over title, original title,
   overview, cast, crew and studios — ranked via SQLite's `bm25`.
-- **Cover grid + detail pane** in QML — lazy thumbnail loading, recycled
-  delegates, dark Material theme. Badges for LOANED items and box-set
-  parents.
-- **TMDb integration** — async search with poster previews; pick a
-  candidate and the TMDb id is persisted onto the movie for later
-  metadata refresh.
+- **Qt Widgets UI** — switch between a **cover grid** (`QListView` icon
+  mode, custom-painted 168×300 tiles) and a **list/tree view** (`QTreeView`
+  with box-set parents expandable over their children, sortable columns,
+  toggleable column visibility), plus a tabbed **detail pane**. Cover
+  pixmaps are cached; LOANED and box-set badges on tiles. Fusion theme with
+  dark / light / system palettes.
+- **Add / edit / delete titles** — a tabbed edit dialog mutates a full copy
+  of the movie, so untouched fields (cast, discs, box-set membership) survive
+  a save. Optional in-dialog TMDb prefill, and pick / preview / clear custom
+  front & back cover images.
+- **TMDb integration** — async v3 search with poster thumbnails;
+  *Match on TMDb* links an existing entry, *Add a title* does a rich
+  search / discover lookup (year range, genres, person, rating, language,
+  country, runtime, sort) to create a new one, and **bulk match** links many
+  movies at once (bounded-concurrent search, per-row override/skip, then an
+  optional throttled poster download). Posters save to the library and the
+  search language follows the UI locale.
 - **Async import wizard** — XML parsing on a worker thread, preview
   dialog (count + sample titles), then a progress bar while rows are
   written to the database. UI thread never blocks.
@@ -44,17 +56,17 @@ SQLite library, and searches/browses with a Material-styled Qt Quick UI.
 |---|---|---|
 | Domain | `xyz_domain` (header-only) | Plain-aggregate structs — `Movie`, `MediaItem`, `Person`, `Disc`, `AudioTrack`, `RatingInfo`, … Reusable for non-film media (a future `Game : MediaItem` slots in beside `Movie`). |
 | Importers | `xyz_importers` | Abstract `Importer` base + `DvdProfilerXmlImporter`. Source-format-specific code is isolated here; future importers drop in as sibling modules. |
-| Persistence | `xyz_db` | `Database` (connection + pragmas), `Migrations` (versioned, idempotent), `MovieRepository` (CRUD + bulk + FTS5 search). |
-| Metadata | `xyz_tmdb` | Async TMDb v3 read client (`search/movie`, `movie/{id}`, `configuration`). Shares a `QNetworkDiskCache` with the QML image loader, so poster thumbnails persist across runs. |
-| UI | `xyz-profiler` exe | `MovieListModel`, `LibraryController`, `SettingsController` exposed as QML singletons. Views: `Main.qml`, `CoverGrid.qml`, `MovieDetail.qml`, plus dialogs (TMDb match, import preview, settings). |
+| Persistence | `xyz_db` | `Database` (connection + pragmas), `Migrations` (versioned, idempotent — v1 schema + FTS5, v2 `tmdb_id`, v3 canonical disc format), `MovieRepository` (CRUD incl. `remove`, bulk insert, cheap single-column cover updates, FTS5 search). |
+| Metadata | `xyz_tmdb` | Async TMDb v3 read client (`search`/`searchFor`, `movie/{id}`, `configuration`, `discover`). A `QNetworkDiskCache` persists poster thumbnails across runs. Search/detail `language=` follows the app locale. |
+| UI | `xyz-profiler` exe | Qt Widgets. Controllers (`LibraryController`, `SettingsController`) are plain `QObject`s the UI connects to. Models: `MovieListModel` (grid), `MovieTreeModel` (box-set tree). Views/widgets: `MainWindow`, `CoverGridWidget`, `MovieRowDelegate`, `MovieDetailWidget`, plus dialogs (TMDb match, bulk match, add title, edit movie, import preview, settings). |
 
 The library DB lives under the per-user AppData directory and is
 auto-created on first launch; the GUI never asks for a path.
 
 ## DP4 import
 
-Validated against a real DP4 export with the schema quirks the schema
-hits in practice — including the `Audio` → `<AudioContent>/<AudioFormat>/
+Validated against a real DP4 export with the schema quirks it hits in
+practice — including the `Audio` → `<AudioContent>/<AudioFormat>/
 <AudioChannels>` child names (not `Content/Format/Channels` as some
 mirrors document), the `<Discs>/<Disc>` shape with side-A/B fields (not a
 flat `<DiscIDs>` list), the `<PurchasePrice>` + `<PurchaseDate>` element
@@ -78,8 +90,8 @@ honours the `<?xml encoding="windows-1252"?>` declaration — opening with
 - Visual Studio 2022 (MSVC v143) on Windows, or a recent g++/clang on Linux
 - CMake ≥ 3.21
 - Qt 6.5+ (tested with 6.10.2 and 6.11.1) — MSVC 64-bit kit on Windows.
-  Required Qt modules: `Core`, `Concurrent`, `Gui`, `Network`, `Qml`,
-  `Quick`, `QuickControls2`, `Sql`, `Test`, `LinguistTools`.
+  Required Qt modules: `Core`, `Concurrent`, `Gui`, `Network`, `Widgets`,
+  `Sql`, `Svg`, `Test`, `LinguistTools`.
 
 The CMake script auto-detects Qt under `H:/Qt` or `C:/Qt`. To use a
 different location, point CMake at it:
@@ -137,10 +149,11 @@ xyz-profiler.exe path\to\Collection.xml `
 
 | Flag | Purpose |
 |---|---|
-| `--db <path>` (CLI) | Override the SQLite library path |
-| `--images <dir>` | Resolve cover JPGs against this directory during import |
-| `--search <query>` | After import, run an FTS5 search and dump hits |
-| `--detail <id>` | Dump full detail for the movie with that ID |
+| `--db, -b <path>` | Override the SQLite library path |
+| `--library-root, -r <dir>` | Store cover paths relative to this directory |
+| `--images, -i <dir>` | Resolve cover JPGs against this directory during import |
+| `--search, -s <query>` | After import, run an FTS5 search and dump hits |
+| `--detail, -d <id>` | Dump full detail for the movie with that ID |
 
 ## Configuration
 
@@ -156,9 +169,13 @@ directory:
 |---|---|
 | `tmdb/api_key` | TMDb v3 read key. Overrides the `TMDB_API_KEY` env var. |
 | `library/images_directory` | Default cover-images directory used by the import wizard. |
-| `ui/theme` | `Dark` / `Light` / `System` (bound to `Material.theme`). |
+| `ui/theme` | `Dark` / `Light` / `System` — applied via the Fusion `QPalette` in `DarkFusionStyle`. |
+| `ui/view_mode` | Last-used view (`grid` / `list`). |
+| `ui/table_columns`, `ui/sort_*` | List-view column visibility and sort order. |
 
-The same fields are editable from the in-app *Settings…* dialog.
+TMDb key, images directory and theme are editable from the in-app
+*Settings…* dialog; view mode, columns and sort are persisted as you use
+the app.
 
 Network responses (TMDb JSON + poster JPEGs) are cached on disk at the
 platform cache location:
@@ -168,8 +185,9 @@ platform cache location:
 | Windows | `%LOCALAPPDATA%\xyz-profiler\cache\network` |
 | Linux | `~/.cache/xyz-profiler/network` |
 
-Bound to 256 MB; the QML `Image` loader and the TMDb client share the
-same directory so poster thumbnails survive restarts.
+The TMDb client's `QNetworkDiskCache` lives here so poster thumbnails
+survive restarts; downloaded full-size posters are saved into the library's
+`covers/` directory and painted via an in-memory `QPixmapCache`.
 
 ## Packaging
 
@@ -200,9 +218,10 @@ src/
     dvdprofiler/      # DP4 Collection.xml importer
   db/                 # SQLite Database / Migrations / MovieRepository
   tmdb/               # TMDb v3 async client + types
-  models/             # MovieListModel (QAbstractListModel for QML)
-  controllers/        # LibraryController, SettingsController (QML singletons)
-  qml/                # Main.qml + CoverGrid / MovieDetail / dialogs
+  models/             # MovieListModel / MovieTreeModel (+ sort proxies)
+  controllers/        # LibraryController, SettingsController (QObject)
+  ui/                 # Qt Widgets — MainWindow, cover grid, detail pane,
+                      #   delegates, theming, and the dialogs
   main.cpp            # entry point — CLI + GUI dual mode
 resources/            # app icon, Win32 RC, Qt resource bundle
 translations/         # .ts files (de_DE)
@@ -213,15 +232,20 @@ packaging/windows/    # Inno Setup script
 
 ## Status
 
-The original roadmap is complete: DP4 import, SQLite persistence with
-FTS5 search, QML cover grid + detail pane, TMDb matching, user settings
-with reactive theme, two-phase async import wizard. Validated against a
-real 369-entry library; 47 unit tests across the importer and repository.
+The original roadmap is complete and then some: DP4 import, SQLite
+persistence with FTS5 search, a Qt Widgets cover grid + list/tree view +
+detail pane, TMDb matching, the *Add a title* discover lookup, **bulk TMDb
+matching**, **add / edit / delete** with custom cover images, user settings
+with dark/light/system theming, and the two-phase async import wizard. (The
+UI was migrated from the original Qt Quick/QML prototype to Qt Widgets — a
+better fit for this data-heavy desktop app.) Validated against a real
+369-entry library; 48 unit tests across the importer and repository.
 
 Post-MVP items still open:
 
-- *Refresh from TMDb* — overwrite local metadata with TMDb data (needs
-  UX for per-field opt-in)
+- *Refresh from TMDb* — overwrite local metadata in bulk with TMDb data
+  (the edit dialog already offers per-field TMDb prefill; this is the
+  one-click, whole-library variant)
 - Loan tracking UI (the data is already read from DP4 — just no editor)
 - Barcode scanning
 - Multi-user / cross-device sync

@@ -16,12 +16,40 @@
 #include <QPixmap>
 #include <QPixmapCache>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QStackedWidget>
+#include <QStringList>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
 namespace xyz {
+
+namespace {
+
+// Normalise a free-text field (overview / notes) for display in a RichText
+// QLabel. Source data is inconsistent: some descriptions carry HTML markup
+// (<b>, <i>, …), others are plain text. QLabel's default Qt::AutoText decides
+// per-string via Qt::mightBeRichText(), which only inspects the start of the
+// text — so a <b> in the *middle* of an otherwise plain overview (e.g. "The
+// Whale") is shown literally, while another title renders fine. We sidestep
+// that heuristic: if the text contains a recognised inline HTML tag, render it
+// as-is; otherwise escape it (so a stray "<" stays literal) and turn newlines
+// into <br> so plain multi-line text keeps its breaks. The label must be set to
+// Qt::RichText for this to take effect.
+QString toDisplayHtml(const QString& text)
+{
+    static const QRegularExpression htmlTag(
+        QStringLiteral("</?(b|i|em|strong|u|s|br|p|ul|ol|li|h[1-6]|span|div|a|blockquote|sub|sup)\\b[^>]*>"),
+        QRegularExpression::CaseInsensitiveOption);
+    if (htmlTag.match(text).hasMatch())
+        return text;   // already HTML — render the tags
+    QString escaped = text.toHtmlEscaped();
+    escaped.replace(QLatin1Char('\n'), QStringLiteral("<br>"));
+    return escaped;
+}
+
+} // namespace
 
 // ---------------------------------------------------------------------------
 // StarBar — paints a 0..5 star rating (xp-stars). No Q_OBJECT (paint-only).
@@ -301,6 +329,7 @@ void MovieDetailWidget::buildTabs_(QVBoxLayout* contentLayout)
         auto* area = makePage(l);
         m_overviewText = new QLabel;
         m_overviewText->setWordWrap(true);
+        m_overviewText->setTextFormat(Qt::RichText);
         m_overviewText->setTextInteractionFlags(Qt::TextSelectableByMouse);
         { QFont f = m_overviewText->font(); f.setPointSizeF(f.pointSizeF() + 0.5); m_overviewText->setFont(f); }
         l->addWidget(m_overviewText);
@@ -388,6 +417,7 @@ void MovieDetailWidget::buildTabs_(QVBoxLayout* contentLayout)
         auto* area = makePage(l);
         m_notesText = new QLabel;
         m_notesText->setWordWrap(true);
+        m_notesText->setTextFormat(Qt::RichText);
         m_notesText->setTextInteractionFlags(Qt::TextSelectableByMouse);
         l->addWidget(m_notesText);
         auto* extra = new QWidget;
@@ -568,7 +598,7 @@ void MovieDetailWidget::populateHeader_(const Movie& m)
 void MovieDetailWidget::populateOverview_(const Movie& m)
 {
     m_overviewText->setVisible(!m.overview.isEmpty());
-    m_overviewText->setText(m.overview);
+    m_overviewText->setText(toDisplayHtml(m.overview));
     m_overviewText->setStyleSheet(QStringLiteral("color:%1;").arg(Theme::current().text.name()));
 
     clearLayout(m_factsGrid);
@@ -709,13 +739,14 @@ void MovieDetailWidget::populateTech_(const Movie& m)
 
 void MovieDetailWidget::populateNotes_(const Movie& m)
 {
-    QString notes = m.notes;
-    if (!m.easterEggs.isEmpty()) {
-        if (!notes.isEmpty()) notes += QStringLiteral("\n\n");
-        notes += tr("Easter eggs: ") + m.easterEggs;
-    }
+    // Normalise each part for the RichText label, then join with paragraph
+    // breaks so HTML renders and any plain-text newlines are preserved.
+    QStringList parts;
+    if (!m.notes.isEmpty())      parts << toDisplayHtml(m.notes);
+    if (!m.easterEggs.isEmpty()) parts << toDisplayHtml(tr("Easter eggs: ") + m.easterEggs);
+    QString notes = parts.join(QStringLiteral("<br><br>"));
     if (notes.isEmpty())
-        notes = tr("No notes for this title yet.");
+        notes = toDisplayHtml(tr("No notes for this title yet."));
     m_notesText->setText(notes);
     m_notesText->setStyleSheet(QStringLiteral("color:%1;").arg(
         m.notes.isEmpty() && m.easterEggs.isEmpty()
