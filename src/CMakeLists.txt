@@ -108,6 +108,22 @@ qt_add_executable(xyz-profiler
     ui/CoverGridWidget.cpp
     ui/MovieDetailWidget.h
     ui/MovieDetailWidget.cpp
+    ui/CalendarBuckets.h
+    ui/CalendarBuckets.cpp
+    ui/CalendarPaint.h
+    ui/CalendarPaint.cpp
+    ui/CalendarMonthView.h
+    ui/CalendarMonthView.cpp
+    ui/CalendarYearView.h
+    ui/CalendarYearView.cpp
+    ui/CalendarTimeline.h
+    ui/CalendarTimeline.cpp
+    ui/MoviePopover.h
+    ui/MoviePopover.cpp
+    ui/DayPopover.h
+    ui/DayPopover.cpp
+    ui/CalendarWindow.h
+    ui/CalendarWindow.cpp
     ui/TmdbMatchDialog.h
     ui/TmdbMatchDialog.cpp
     ui/AddTitleDialog.h

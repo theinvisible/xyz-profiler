@@ -16,6 +16,8 @@ constexpr auto kKeyTableCols    = "ui/table_columns";
 constexpr auto kKeyTableSortRole = "ui/table_sort_role";
 constexpr auto kKeyTableSortDesc = "ui/table_sort_desc";
 constexpr auto kKeySplitterState = "ui/detail_splitter_state";
+constexpr auto kKeyCalBasis      = "ui/calendar_basis";
+constexpr auto kKeyCalView       = "ui/calendar_view";
 
 constexpr auto kDefaultColumns = "title;year;runtime;format;ratingValue;directorName";
 
@@ -34,7 +36,9 @@ SettingsController::SettingsController(QObject* parent)
       m_store(new QSettings(settingsPath(), QSettings::IniFormat, this)),
       m_themeName(QStringLiteral("Dark")),
       m_viewMode(QStringLiteral("grid")),
-      m_visibleTableColumns(QString::fromLatin1(kDefaultColumns))
+      m_visibleTableColumns(QString::fromLatin1(kDefaultColumns)),
+      m_calendarDateBasis(QStringLiteral("release")),
+      m_calendarView(QStringLiteral("month"))
 {
     load_();
 }
@@ -54,6 +58,10 @@ void SettingsController::load_()
     m_tableSortRole   = m_store->value(QLatin1String(kKeyTableSortRole)).toString();
     m_tableSortDescending = m_store->value(QLatin1String(kKeyTableSortDesc), false).toBool();
     m_detailSplitterState = m_store->value(QLatin1String(kKeySplitterState)).toString();
+    m_calendarDateBasis = m_store->value(QLatin1String(kKeyCalBasis),
+                                         QStringLiteral("release")).toString();
+    m_calendarView      = m_store->value(QLatin1String(kKeyCalView),
+                                         QStringLiteral("month")).toString();
 }
 
 void SettingsController::write_(const QString& key, const QVariant& value)
@@ -133,6 +141,26 @@ void SettingsController::setDetailSplitterState(const QString& base64)
     if (m_detailSplitterState == base64) return;
     m_detailSplitterState = base64;
     write_(QString::fromLatin1(kKeySplitterState), m_detailSplitterState);
+}
+
+void SettingsController::setCalendarDateBasis(const QString& basis)
+{
+    const QString next = (basis == QLatin1String("purchase"))
+                             ? QStringLiteral("purchase") : QStringLiteral("release");
+    if (m_calendarDateBasis == next) return;
+    m_calendarDateBasis = next;
+    write_(QString::fromLatin1(kKeyCalBasis), m_calendarDateBasis);
+    emit calendarDateBasisChanged();
+}
+
+void SettingsController::setCalendarView(const QString& view)
+{
+    const QString next = (view == QLatin1String("year"))
+                             ? QStringLiteral("year") : QStringLiteral("month");
+    if (m_calendarView == next) return;
+    m_calendarView = next;
+    write_(QString::fromLatin1(kKeyCalView), m_calendarView);
+    emit calendarViewChanged();
 }
 
 QString SettingsController::resolveTmdbApiKey(const SettingsController& settings)

@@ -6,6 +6,7 @@
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
 #include "ui/BulkTmdbMatchDialog.h"
+#include "ui/CalendarWindow.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
 #include "ui/EditMovieDialog.h"
@@ -258,6 +259,13 @@ void MainWindow::buildToolBar_()
     segLay->addWidget(m_listBtn);
     segLay->addWidget(m_gridBtn);
     tb->addWidget(seg);
+
+    // Calendar (stats-over-time window).
+    m_calendarBtn = new QToolButton;
+    m_calendarBtn->setObjectName(QStringLiteral("tbIcon"));
+    m_calendarBtn->setToolTip(tr("Calendar — see your films over time"));
+    connect(m_calendarBtn, &QToolButton::clicked, this, &MainWindow::showCalendarWindow_);
+    tb->addWidget(m_calendarBtn);
 
     // Theme + settings.
     m_themeBtn = new QToolButton;
@@ -555,6 +563,7 @@ void MainWindow::connectSettings_()
         if (m_treeView)  m_treeView->viewport()->update();
         if (m_coverGrid) m_coverGrid->viewport()->update();
         if (m_detailPane) m_detailPane->refreshTheme();
+        if (m_calendarWindow) m_calendarWindow->refreshTheme();
     });
 }
 
@@ -573,6 +582,8 @@ void MainWindow::refreshIcons_()
         m_matchBtn->setIcon(IconFactory::icon(QStringLiteral("refresh"), p.text2, 16));
     if (m_searchIcon)
         m_searchIcon->setIcon(IconFactory::icon(QStringLiteral("search"), p.text3, 16));
+    if (m_calendarBtn)
+        m_calendarBtn->setIcon(IconFactory::icon(QStringLiteral("calendar"), p.text2, 16));
     m_settingsBtn->setIcon(IconFactory::icon(QStringLiteral("settings"), p.text2, 16));
     m_themeBtn->setIcon(IconFactory::icon(
         Theme::isDark() ? QStringLiteral("sun") : QStringLiteral("moon"), p.text2, 16));
@@ -984,6 +995,15 @@ void MainWindow::showSettingsDialog_()
 {
     SettingsDialog dlg(m_settings, this);
     dlg.exec();
+}
+
+void MainWindow::showCalendarWindow_()
+{
+    if (!m_calendarWindow)
+        m_calendarWindow = new CalendarWindow(m_controller, m_settings, m_tmdb, this);
+    m_calendarWindow->show();
+    m_calendarWindow->raise();
+    m_calendarWindow->activateWindow();
 }
 
 void MainWindow::showAbout_()

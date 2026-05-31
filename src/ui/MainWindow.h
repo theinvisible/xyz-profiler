@@ -17,6 +17,7 @@ class QTreeView;
 
 namespace xyz {
 
+class CalendarWindow;
 class CoverGridWidget;
 class LibraryController;
 class MovieDetailWidget;
@@ -59,6 +60,7 @@ private:
     QStringList bulkMatchTargetIds_(const QStringList& movieIds) const;
     void updateBulkActionEnabled_();         // enable Match button per selection
     void showSettingsDialog_();
+    void showCalendarWindow_();
     void showAbout_();
     void setupTreeColumnVisibility_();
 
@@ -85,6 +87,7 @@ private:
     QAction*     m_searchIcon  = nullptr;
     QToolButton* m_listBtn     = nullptr;
     QToolButton* m_gridBtn     = nullptr;
+    QToolButton* m_calendarBtn = nullptr;
     QToolButton* m_themeBtn    = nullptr;
     QToolButton* m_settingsBtn = nullptr;
 
@@ -111,6 +114,9 @@ private:
     // Progress
     QProgressDialog*       m_progressDlg     = nullptr;
     QProgressDialog*       m_bulkProgressDlg = nullptr;
+
+    // Calendar — separate non-modal window, created on first open and kept alive.
+    CalendarWindow*        m_calendarWindow  = nullptr;
 };
 
 } // namespace xyz

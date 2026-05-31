@@ -28,6 +28,8 @@ const QHash<QString, QString>& icons()
         {QStringLiteral("disc"),    QStringLiteral("M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zm0 6.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5z")},
         {QStringLiteral("film"),    QStringLiteral("M3 4h18v16H3zM7 4v16M17 4v16M3 8h4M17 8h4M3 12h4M17 12h4M3 16h4M17 16h4")},
         {QStringLiteral("chevron"), QStringLiteral("M9 6l6 6-6 6")},
+        {QStringLiteral("chevronLeft"), QStringLiteral("M15 6l-6 6 6 6")},
+        {QStringLiteral("calendar"),QStringLiteral("M3 5h18v16H3zM3 9h18M8 3v4M16 3v4")},
         {QStringLiteral("close"),   QStringLiteral("M6 6l12 12M18 6L6 18")},
         {QStringLiteral("sort"),    QStringLiteral("M7 4v16M7 4L4 7M7 4l3 3M17 20V4M17 20l3-3M17 20l-3-3")},
         {QStringLiteral("shelf"),   QStringLiteral("M3 7h18M3 12h18M3 17h18M6 7v10M18 7v10")},

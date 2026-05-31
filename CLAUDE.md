@@ -81,11 +81,20 @@ xyz-profiler/
 │       ├── AddTitleDialog.h/.cpp       "Add a title" — rich TMDb search/discover lookup + filters
 │       ├── EditMovieDialog.h/.cpp      Add/edit a movie: tabbed form, TMDb prefill, cover image editing
 │       ├── ImportPreviewDialog.h/.cpp  Two-phase import confirmation
-│       └── SettingsDialog.h/.cpp       TMDb key, images dir, theme editor
+│       ├── SettingsDialog.h/.cpp       TMDb key, images dir, theme editor
+│       ├── CalendarBuckets.h/.cpp      Pure (testable) date bucketing — day/month/year, release|purchase
+│       ├── CalendarPaint.h/.cpp        Shared hybrid-cell painter + mini-cover cache (both calendar views)
+│       ├── CalendarMonthView.h/.cpp    Custom-painted Monday-start month grid (hybrid day cells)
+│       ├── CalendarYearView.h/.cpp     Custom-painted 4×3 month grid (drills into month view)
+│       ├── CalendarTimeline.h/.cpp     Year histogram; click a bar to jump the calendar
+│       ├── MoviePopover.h/.cpp         Qt::Popup hosting a reused MovieDetailWidget (film click)
+│       ├── DayPopover.h/.cpp           Qt::Popup list of a day's films (overflow)
+│       └── CalendarWindow.h/.cpp       Non-modal stats window: views + timeline + popovers
 └── tests/
     ├── CMakeLists.txt
     ├── test_dvdprofiler_xml_importer.cpp   QtTest, registered with ctest
     ├── test_movie_repository.cpp
+    ├── test_calendar_buckets.cpp
     └── data/
         └── sample_collection.xml
 ```
@@ -187,8 +196,15 @@ Widgets / Sql / Svg / Test / LinguistTools.
 - **Custom cover images**: pick / preview / clear front & back covers in the
   edit dialog → `LibraryController::importCoverImagesForMovie` copies them to
   `covers/<id>f.<ext>` / `covers/<id>b.<ext>` and emits `coverUpdated`
+- **Calendar window** (`CalendarWindow`, non-modal — opened from a toolbar
+  button): plots the collection over time by **release** or **purchase** date.
+  Month/year views with prev/next/Today nav, a year-histogram **timeline**
+  (click a bar to jump), and custom-painted "hybrid" cells (count tint + mini
+  covers + overflow badge). Clicking a film opens its `MovieDetailWidget` in an
+  anchored `MoviePopover`. Bucketing (`CalendarBuckets`) is pure + unit-tested;
+  basis/view persist via `SettingsController`
 - **User settings** (`SettingsController` + INI): TMDb key, images dir,
-  theme, view mode, table columns, sort state
+  theme, view mode, table columns, sort state, calendar basis + view
 - **Two-phase import wizard**: file pick → background parse → preview
   dialog → progress bar → done
 - **Box-set grouping**: parents expandable in the list (tree) view with
@@ -196,8 +212,8 @@ Widgets / Sql / Svg / Test / LinguistTools.
 - **Internationalisation**: English + German via `qt_add_translations`
 - **Packaging**: Inno Setup script + GitHub Actions workflow
 
-**Validated against** the user's real 369-entry DP4 export. 48 unit tests
-across two binaries (importer + repository).
+**Validated against** the user's real 369-entry DP4 export. 54 unit tests
+across three binaries (importer + repository + calendar buckets).
 
 ## Roadmap
 
@@ -330,6 +346,29 @@ Things that cost time to rediscover. When you touch one of these, start here.
   download afterwards only if the user ticked the box.
 - Box-set parents: `MainWindow::bulkMatchTargetIds_` expands a selected parent
   to include its child titles, so matching a set matches its discs too.
+
+### Calendar window
+
+- A separate non-modal `QWidget` (`Qt::Window`) created lazily by `MainWindow`
+  (`showCalendarWindow_`, single instance, kept alive) — not a stacked view and
+  not a dialog. `MainWindow` propagates theme changes to it via the
+  `connectSettings_` lambda (`m_calendarWindow->refreshTheme()`).
+- All data flows through `CalendarBuckets` (pure, in `CalendarBuckets.h/.cpp`):
+  `buildBuckets(movies, basis)` groups by day/month/year and is recomputed on
+  `LibraryController::moviesChanged()` and on basis change. Box-set **parents are
+  skipped** (`m.boxSet.isParent`) — mirror this anywhere you aggregate movies, to
+  match the grid's `IsBoxSetParentRole` filter. Release basis falls back to
+  `productionYear` (year-only, no day placement); purchase basis has no fallback
+  (undated). `byDay` is keyed by `QDate::toJulianDay()` (avoids relying on
+  `qHash(QDate)`).
+- The custom views never rescan per paint — they hold a const ptr to the cached
+  buckets + a `CoverIndex`. Mini covers reuse the `CoverDelegate` scaling +
+  `CoverCache::key(path, "calmini…")` pattern; `coverUpdated` bumps the cache and
+  repaints. Shared cell rendering lives in `CalendarPaint::paintHybridCell`.
+- The film popover **reuses `MovieDetailWidget`** verbatim inside a `Qt::Popup`
+  frame (`MoviePopover`); `Qt::Popup` gives free close-on-outside/Esc. New string?
+  run `lupdate` and add the German `.ts` entry (see `xyz::CalendarWindow` /
+  `xyz::CalendarTimeline` contexts).
 
 ### Detail-pane free text (overview / notes) & HTML
 

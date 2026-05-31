@@ -24,6 +24,8 @@ public:
     QString tableSortRole()        const { return m_tableSortRole; }
     bool    tableSortDescending()  const { return m_tableSortDescending; }
     QString detailSplitterState()  const { return m_detailSplitterState; }
+    QString calendarDateBasis()    const { return m_calendarDateBasis; }
+    QString calendarView()         const { return m_calendarView; }
 
     void setTmdbApiKey(const QString& key);
     void setImagesDirectory(const QString& dir);
@@ -34,6 +36,10 @@ public:
     void setTableSortDescending(bool desc);
     // Base64-encoded QSplitter::saveState() for the views/detail splitter.
     void setDetailSplitterState(const QString& base64);
+    // Calendar window: which date drives it ("release" | "purchase") and the
+    // active view ("month" | "year").
+    void setCalendarDateBasis(const QString& basis);
+    void setCalendarView(const QString& view);
 
     static QString resolveTmdbApiKey(const SettingsController& settings);
 
@@ -44,6 +50,8 @@ signals:
     void viewModeChanged();
     void visibleTableColumnsChanged();
     void tableSortChanged();
+    void calendarDateBasisChanged();
+    void calendarViewChanged();
 
 private:
     void load_();
@@ -58,6 +66,8 @@ private:
     QString    m_tableSortRole;
     bool       m_tableSortDescending = false;
     QString    m_detailSplitterState;
+    QString    m_calendarDateBasis;
+    QString    m_calendarView;
 };
 
 } // namespace xyz

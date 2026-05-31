@@ -31,3 +31,13 @@ xyz_add_test(test_movie_repository
     xyz_db
     Qt6::Sql
 )
+
+# CalendarBuckets is the only non-UI calendar logic; compile its .cpp into the
+# test directly (the helper takes a single source) and expose src/ for includes.
+xyz_add_test(test_calendar_buckets
+    test_calendar_buckets.cpp
+    xyz_domain
+)
+target_sources(test_calendar_buckets PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/ui/CalendarBuckets.cpp)
+target_include_directories(test_calendar_buckets PRIVATE ${CMAKE_SOURCE_DIR}/src)
