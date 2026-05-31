@@ -72,7 +72,8 @@ FormatBadge formatBadge(const QString& rawFormat)
     const QString f = rawFormat.trimmed();
     const QString lo = f.toLower();
 
-    if (lo.contains(QStringLiteral("uhd")) || lo.contains(QStringLiteral("4k")))
+    if (lo.contains(QStringLiteral("uhd")) || lo.contains(QStringLiteral("4k"))
+        || lo.contains(QStringLiteral("ultra")))   // "UHD", "UltraHD", "Ultra HD"
         return { QStringLiteral("4K UHD"), QColor(0xb0, 0x7d, 0x18), true };
     if (lo.contains(QStringLiteral("blu")))   // "BluRay", "Blu-ray"
         return { QStringLiteral("Blu-ray"), QColor(0x2f, 0x6f, 0xd0), true };

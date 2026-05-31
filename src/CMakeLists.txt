@@ -13,6 +13,7 @@ target_sources(xyz_domain INTERFACE
         domain/Event.h
         domain/IdMetadata.h
         domain/LoanInfo.h
+        domain/MediaFormat.h
         domain/MediaItem.h
         domain/MonetaryAmount.h
         domain/Movie.h

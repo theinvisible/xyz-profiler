@@ -257,6 +257,20 @@ const QStringList kV2Statements = {
     QStringLiteral("CREATE INDEX idx_movies_tmdb_id ON movies(tmdb_id)"),
 };
 
+// ---------------------------------------------------------------------------
+// Migration v3 — canonical disc-format vocabulary
+//
+// Early imports stored the DP4 <MediaTypes> element name verbatim (e.g.
+// "UltraHD"), while the add/edit dialogs use the canonical code ("UHD"). This
+// rewrites the legacy spelling in place so old and new entries agree. Mirrors
+// the UltraHD→UHD mapping in domain/MediaFormat.h; the other DP4 names
+// ("DVD", "BluRay", "HDDVD") are already canonical. `format` is not part of
+// the FTS index, so no movies_fts update is needed.
+// ---------------------------------------------------------------------------
+const QStringList kV3Statements = {
+    QStringLiteral("UPDATE movies SET format = 'UHD' WHERE format = 'UltraHD'"),
+};
+
 bool exec(QSqlQuery& q, const QString& sql, QString* err)
 {
     if (!q.exec(sql)) {
@@ -296,6 +310,11 @@ bool applyMigration(QSqlQuery& q, int version, QString* err)
             if (!exec(q, sql, err)) return false;
         }
         return true;
+    case 3:
+        for (const auto& sql : kV3Statements) {
+            if (!exec(q, sql, err)) return false;
+        }
+        return true;
     default:
         if (err) *err = QStringLiteral("Unknown migration version %1").arg(version);
         return false;
@@ -306,7 +325,7 @@ bool applyMigration(QSqlQuery& q, int version, QString* err)
 
 int Migrations::latestVersion()
 {
-    return 2;
+    return 3;
 }
 
 int Migrations::currentVersion(Database& db, QString* errorString)

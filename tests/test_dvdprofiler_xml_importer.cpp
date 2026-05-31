@@ -28,6 +28,7 @@ class TestDvdProfilerXmlImporter : public QObject {
 
 private slots:
     void parses_basic_movie();
+    void canonicalises_ultrahd_media_type();
     void parses_multiple_movies();
     void ignores_unknown_elements();
     void reports_wrong_root_element();
@@ -130,6 +131,27 @@ void TestDvdProfilerXmlImporter::parses_basic_movie()
     QCOMPARE(m.studios, QStringList({QStringLiteral("Paramount")}));
     QCOMPARE(m.purchase.date,        QDate(2011, 1, 15));
     QCOMPARE(m.purchase.price.value, QStringLiteral("9.99"));
+}
+
+void TestDvdProfilerXmlImporter::canonicalises_ultrahd_media_type()
+{
+    // DP4 names the 4K media type <UltraHD>; the importer must store the app's
+    // canonical "UHD" so imported entries match dialog-created ones.
+    const QByteArray xml = R"(<Collection>
+  <DVD>
+    <ID>9</ID><Title>Dune</Title>
+    <MediaTypes>
+      <DVD>false</DVD>
+      <BluRay>false</BluRay>
+      <UltraHD>true</UltraHD>
+    </MediaTypes>
+  </DVD>
+</Collection>
+)";
+    const auto res = parse(xml);
+    QVERIFY2(res.ok, qPrintable(res.errorString));
+    QCOMPARE(res.movies.size(), 1);
+    QCOMPARE(res.movies.first().format, QStringLiteral("UHD"));
 }
 
 void TestDvdProfilerXmlImporter::parses_audio_tracks_real_dp4_child_names()

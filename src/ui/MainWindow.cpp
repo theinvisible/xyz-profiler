@@ -409,6 +409,22 @@ void MainWindow::buildCentralWidget_()
         showMovieContextMenu_(id, m_coverGrid->viewport()->mapToGlobal(pos));
     });
 
+    // Double-click a title in either view to open the edit dialog. Box-set
+    // parents still expand via the decoration arrow (expand-on-double-click is
+    // off), so a double-click means "edit" uniformly instead of also toggling
+    // the row.
+    m_treeView->setExpandsOnDoubleClick(false);
+    connect(m_treeView, &QAbstractItemView::doubleClicked, this,
+            [this](const QModelIndex& idx) {
+        const auto srcIdx = m_treeSortProxy->mapToSource(idx);
+        showEditDialog_(m_controller->treeModel()->movieIdAtIndex(srcIdx));
+    });
+
+    connect(m_coverGrid, &QAbstractItemView::doubleClicked, this,
+            [this](const QModelIndex& idx) {
+        showEditDialog_(idx.data(MovieListModel::IdRole).toString());
+    });
+
     // Keep the bulk-match button's enabled state in sync with the multi-selection
     // in whichever view is active.
     connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,

@@ -42,6 +42,7 @@ xyz-profiler/
 │   │   ├── LoanInfo.h         loaned / due / user
 │   │   ├── Event.h            type / timestamp / note / user (loan history)
 │   │   ├── Review.h           own star ratings (film/video/audio/extras)
+│   │   ├── MediaFormat.h      canonicalMediaFormat() — DVD/BluRay/UHD/HDDVD vocabulary
 │   │   ├── MediaItem.h        Media-neutral base — everything reusable for games
 │   │   └── Movie.h            Movie : MediaItem (+ runtime, format, audio, video, …)
 │   ├── importers/             Source-format importers (xyz_importers lib)
@@ -52,17 +53,17 @@ xyz-profiler/
 │   ├── db/                    SQLite persistence (xyz_db lib)
 │   │   ├── Database.h/.cpp    Connection wrapper, WAL + FK pragmas
 │   │   ├── Migrations.h/.cpp  schema_version + idempotent runner
-│   │   └── MovieRepository.h/.cpp  insert/bulk/getById/getAll/search (FTS5)
+│   │   └── MovieRepository.h/.cpp  insert/remove/bulk/getById/getAll/search (FTS5) + setCoverFront/Back
 │   ├── tmdb/                  TMDb v3 read API client (xyz_tmdb lib)
-│   │   ├── TmdbTypes.h        Candidate / MovieDetails / ImageConfig
-│   │   └── TmdbClient.h/.cpp  Async search/movie/configuration; language = app locale
+│   │   ├── TmdbTypes.h        Candidate / Genre / BulkMatch / DiscoverQuery / MovieDetails / ImageConfig
+│   │   └── TmdbClient.h/.cpp  Async search/searchFor/movie/configuration/discover; language = app locale
 │   ├── models/                Data models for views
 │   │   ├── MovieListModel.h/.cpp       QAbstractListModel (roles for cover grid)
 │   │   ├── MovieTreeModel.h/.cpp       QAbstractItemModel (list view: box-set tree)
 │   │   ├── MovieTableModel.h/.cpp      QAbstractTableModel (flat columns; legacy)
 │   │   └── MovieSortProxyModel.h/.cpp  QSortFilterProxyModel for icon-view sorting
 │   ├── controllers/           Business logic, signals → UI
-│   │   ├── LibraryController.h/.cpp    Library open/import/search/select/TMDb
+│   │   ├── LibraryController.h/.cpp    Library open/import/search/select; movie add/edit/delete; TMDb match + bulk-match
 │   │   └── SettingsController.h/.cpp   QSettings-backed prefs (INI file)
 │   └── ui/                    Qt Widgets UI layer (see "Subsystem notes")
 │       ├── DarkFusionStyle.h/.cpp      Fusion dark/light/system QPalette setup
@@ -76,6 +77,9 @@ xyz-profiler/
 │       ├── MovieRowDelegate.h/.cpp     QTreeView row painter (cover swatch, badges, stars)
 │       ├── MovieDetailWidget.h/.cpp    QScrollArea detail pane (462px, tabbed sections)
 │       ├── TmdbMatchDialog.h/.cpp      TMDb candidate picker with poster thumbnails
+│       ├── BulkTmdbMatchDialog.h/.cpp  Batch TMDb match: one row per movie, live search, poster preview
+│       ├── AddTitleDialog.h/.cpp       "Add a title" — rich TMDb search/discover lookup + filters
+│       ├── EditMovieDialog.h/.cpp      Add/edit a movie: tabbed form, TMDb prefill, cover image editing
 │       ├── ImportPreviewDialog.h/.cpp  Two-phase import confirmation
 │       └── SettingsDialog.h/.cpp       TMDb key, images dir, theme editor
 └── tests/
@@ -128,12 +132,17 @@ Widgets / Sql / Svg / Test / LinguistTools.
 - Modular `Importer` base class — additional source formats slot in as
   siblings under `src/importers/`
 - SQLite persistence (`xyz_db` lib): WAL mode, foreign keys, versioned
-  migrations (v1: full schema + FTS5, v2: tmdb_id), `MovieRepository`
-  with CRUD + bulk + FTS5 search (bm25 ranking)
+  migrations (v1: full schema + FTS5, v2: tmdb_id, v3: canonical disc-format
+  vocabulary — UltraHD→UHD), `MovieRepository`
+  with CRUD (insert / `remove`) + bulk + FTS5 search (bm25 ranking), plus
+  cheap single-column cover updates (`setCoverFront` / `setCoverBack`) that
+  skip the full upsert + child re-insert
 - **Qt Widgets UI** (Fusion dark theme):
-  - `MainWindow` — `QMainWindow` with toolbar (import, view toggle,
-    search field, movie count, settings), `QSplitter` (views + detail),
-    `QStatusBar`
+  - `MainWindow` — `QMainWindow` with toolbar (Add Title, Edit, Delete,
+    Match-on-TMDb, search field, view toggle, theme, settings; Import lives
+    in the File menu), `QSplitter` (views + detail), `QStatusBar` (movie
+    count + selection). Edit/Delete/Match enable per selection; right-click
+    a row or tile for an edit / delete / match context menu
   - `CoverGridWidget` — `QListView` in IconMode with `CoverDelegate`
     painting 168×300 cover tiles (cover image via `QPixmapCache`,
     LOANED dot / SET badge, two-line title + year·genre footer)
@@ -160,6 +169,24 @@ Widgets / Sql / Svg / Test / LinguistTools.
   - Poster download after match (w500, saved to `covers/<id>f.jpg`).
     Re-matching overwrites that file in place → see cover-cache note
   - Schema migration v2 adds `tmdb_id`
+  - `AddTitleDialog` — "add a title" online lookup: routes to `/search/movie`
+    when a title is typed, else `/discover/movie` with server-side filters
+    (year range, genres, person, min rating, original language, origin
+    country, runtime range, sort). Creates a new entry via
+    `LibraryController::addMovieFromTmdb`
+  - `BulkTmdbMatchDialog` + `LibraryController::applyTmdbMatches` — batch-link
+    many movies at once: bounded-concurrent live search, one row per movie
+    with a preselected best guess (override / skip per row), worker-thread
+    write of just the `tmdb_id`s in one transaction, then an optional
+    throttled poster-download queue. Imported metadata is left untouched
+- **Movie CRUD UI**: `EditMovieDialog` — a tabbed add/edit form wired through
+  `LibraryController::updateMovie` / `addMovieFromTmdb` / `deleteMovie`.
+  Editing mutates a full `Movie` *copy*, so unedited fields (cast, discs,
+  box-set membership, `tmdbId`) survive a save. Optional in-dialog TMDb
+  search prefills the form without committing anything until Save.
+- **Custom cover images**: pick / preview / clear front & back covers in the
+  edit dialog → `LibraryController::importCoverImagesForMovie` copies them to
+  `covers/<id>f.<ext>` / `covers/<id>b.<ext>` and emits `coverUpdated`
 - **User settings** (`SettingsController` + INI): TMDb key, images dir,
   theme, view mode, table columns, sort state
 - **Two-phase import wizard**: file pick → background parse → preview
@@ -169,7 +196,7 @@ Widgets / Sql / Svg / Test / LinguistTools.
 - **Internationalisation**: English + German via `qt_add_translations`
 - **Packaging**: Inno Setup script + GitHub Actions workflow
 
-**Validated against** the user's real 369-entry DP4 export. 47 unit tests
+**Validated against** the user's real 369-entry DP4 export. 48 unit tests
 across two binaries (importer + repository).
 
 ## Roadmap
@@ -238,7 +265,9 @@ Things that cost time to rediscover. When you touch one of these, start here.
 
 - Cover files live at `<library>/covers/<id>f.jpg` (TMDb posters) or in the
   DP4 images dir (imported scans). The path is stored in
-  `Movie::coverFrontPath`.
+  `Movie::coverFrontPath`. User-supplied covers picked in `EditMovieDialog`
+  are copied to `covers/<id>f.<ext>` / `covers/<id>b.<ext>` (extension kept
+  from the source file) and recorded in `coverFrontPath` / `coverBackPath`.
 - Three places paint covers and cache the scaled pixmap: `CoverDelegate::paint`
   (`CoverGridWidget`), `MovieRowDelegate::rowCover`, and
   `MovieDetailWidget::populateHeader_`.
@@ -246,14 +275,31 @@ Things that cost time to rediscover. When you touch one of these, start here.
   the path never changes. A cache keyed on the path alone keeps serving the old
   artwork (this is why a re-match left the previous, English cover on screen).
   Fixed via `ui/CoverCache.h`: a per-path *generation* counter folded into the
-  cache key. `LibraryController::downloadTmdbPoster_` emits `coverUpdated(path)`;
-  `MainWindow` calls `CoverCache::bump(path)` and repaints the views + detail
-  pane. **Always build cover-cache keys via `CoverCache::key(path, variant)`**
-  — never raw path strings — and `bump()` on any in-place file change.
+  cache key. `LibraryController::downloadTmdbPoster_` — and
+  `importCoverImagesForMovie`, for user-picked covers — emit
+  `coverUpdated(path)`; `MainWindow` calls `CoverCache::bump(path)` and repaints
+  the views + detail pane. **Always build cover-cache keys via
+  `CoverCache::key(path, variant)`** — never raw path strings — and `bump()` on
+  any in-place file change.
 - Deliberately **no `stat()` per paint** (mtime-in-key was the alternative): the
   cover dir may sit on a network drive, and a filesystem hit per tile per repaint
   would stutter the perf-tuned grid scrolling. The generation map is an in-memory
   hash probe, GUI-thread only (no locking).
+
+### Disc-format vocabulary
+
+- `Movie::format` is a free-form string with two producers that were historically
+  out of sync: the DP4 importer stored the `<MediaTypes>` element name verbatim
+  (`DVD` / `BluRay` / `HDDVD` / `UltraHD`), while the add/edit dialogs store the
+  canonical codes (`DVD` / `BluRay` / `UHD`). The mismatch surfaced as old
+  entries reading "UltraHD" and new ones "Ultra HD".
+- `domain/MediaFormat.h`'s `canonicalMediaFormat()` is the single normaliser
+  (e.g. `UltraHD`→`UHD`). The importer runs it on read; migration **v3** rewrote
+  the legacy rows in place; `Theme::formatBadge` maps any survivor to a display
+  label (`4K UHD` / `Blu-ray` / `DVD`) and is tolerant of either spelling.
+- When adding a format, keep four places in agreement: the combos in
+  `EditMovieDialog` / `AddTitleDialog`, `canonicalMediaFormat()`, the v3 SQL in
+  `Migrations.cpp`, and `Theme::formatBadge`.
 
 ### TMDb language
 
@@ -266,6 +312,24 @@ Things that cost time to rediscover. When you touch one of these, start here.
   separate language *setting* yet; if one is added to `SettingsController`, push
   it via `TmdbClient::setLanguage()` (same pattern as the `setApiKey` wiring in
   `main.cpp`).
+
+### TMDb add-title & bulk match
+
+- `TmdbClient::discover()` is dual-routed (see `TmdbDiscoverQuery`): a non-empty
+  `title` uses `/search/movie` (free-text) with the remaining filters applied
+  **client-side**; an empty title uses `/discover/movie` with every filter
+  applied **server-side**. `person` is first resolved to an id via
+  `/search/person`. `movieGenres()` returns the stable genre id/name list so the
+  filter UI needs no extra round-trip.
+- Bulk match (`BulkTmdbMatchDialog` → `applyTmdbMatches`) uses
+  `searchFor(requestId, …)` so each reply correlates back to a specific movie —
+  plain `search()`'s title/year are ambiguous across a large collection. Two
+  throttles, both GUI-thread: the dialog caps concurrent searches; the
+  controller caps concurrent poster downloads via a `m_posterQueue` pump. The
+  `tmdb_id` writes happen first on a worker thread (one transaction); posters
+  download afterwards only if the user ticked the box.
+- Box-set parents: `MainWindow::bulkMatchTargetIds_` expands a selected parent
+  to include its child titles, so matching a set matches its discs too.
 
 ## Useful references
 

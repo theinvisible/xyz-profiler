@@ -1,5 +1,7 @@
 #include "DvdProfilerXmlImporter.h"
 
+#include "domain/MediaFormat.h"
+
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -113,14 +115,16 @@ void readCredits(QXmlStreamReader& r, Movie& m)
 }
 
 // DVD Profiler flags the primary disc format with a "True"/"true" boolean
-// for each media type. The first one that matches wins.
+// for each media type. The first one that matches wins. The DP4 element name
+// (e.g. "UltraHD") is mapped to the app's canonical code ("UHD") so imported
+// entries share one vocabulary with hand-entered ones — see MediaFormat.h.
 void readMediaTypes(QXmlStreamReader& r, Movie& m)
 {
     while (r.readNextStartElement()) {
         const QString name = r.name().toString();
         const QString val  = r.readElementText().trimmed();
         if (m.format.isEmpty() && isTruthy(val)) {
-            m.format = name;
+            m.format = canonicalMediaFormat(name);
         }
     }
 }
