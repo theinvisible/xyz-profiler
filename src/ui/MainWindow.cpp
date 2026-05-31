@@ -26,6 +26,7 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
+#include <QKeySequence>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -33,6 +34,7 @@
 #include <QMessageBox>
 #include <QProgressDialog>
 #include <QDateTime>
+#include <QRegularExpression>
 #include <QSet>
 #include <QSortFilterProxyModel>
 #include <QSplitter>
@@ -77,6 +79,23 @@ QString gridRoleForColumn(int column)
     }
 }
 
+// Assign a standard-key shortcut to an action, but ONLY when it resolves to a
+// real accelerator. On Windows, QKeySequence::Quit and ::Preferences resolve to
+// the named system keys Qt::Key_Exit / Qt::Key_Settings, whose text is the bare
+// word "Exit" / "Settings". A QMenu paints that word in the item's shortcut
+// column, and with the German Qt translation loaded it becomes "Beenden" /
+// "Einstellungen" — so the entry looks doubled ("Einstellungen … Einstellungen").
+// We only keep the shortcut when it carries a modifier or is a function key
+// (e.g. Linux's Ctrl+Q, or F5 for Refresh); the bare named-key sequences are
+// dropped so nothing phantom shows in the menu.
+void setStandardShortcut(QAction* action, QKeySequence::StandardKey key)
+{
+    const QString portable = QKeySequence(key).toString(QKeySequence::PortableText);
+    static const QRegularExpression fnKey(QStringLiteral("^F\\d+$"));
+    if (portable.contains(QLatin1Char('+')) || fnKey.match(portable).hasMatch())
+        action->setShortcut(key);
+}
+
 } // namespace
 
 MainWindow::MainWindow(LibraryController* controller,
@@ -117,7 +136,7 @@ void MainWindow::buildMenuBar_()
                                   this, &MainWindow::showImportDialog_);
     file->addSeparator();
     m_actQuit = file->addAction(tr("&Quit"), qApp, &QApplication::quit);
-    m_actQuit->setShortcut(QKeySequence::Quit);
+    setStandardShortcut(m_actQuit, QKeySequence::Quit);
 
     auto* view = mb->addMenu(tr("&View"));
     auto* viewGroup = new QActionGroup(this);
@@ -137,12 +156,12 @@ void MainWindow::buildMenuBar_()
     auto* coll = mb->addMenu(tr("&Collection"));
     m_actRefresh = coll->addAction(tr("&Refresh"),
                                    m_controller, &LibraryController::refresh);
-    m_actRefresh->setShortcut(QKeySequence::Refresh);
+    setStandardShortcut(m_actRefresh, QKeySequence::Refresh);
 
     auto* tools = mb->addMenu(tr("&Tools"));
     m_actSettings = tools->addAction(tr("&Settings…"),
                                      this, &MainWindow::showSettingsDialog_);
-    m_actSettings->setShortcut(QKeySequence::Preferences);
+    setStandardShortcut(m_actSettings, QKeySequence::Preferences);
 
     auto* help = mb->addMenu(tr("&Help"));
     m_actAbout = help->addAction(tr("&About XYZ Profiler…"),

@@ -331,6 +331,23 @@ Things that cost time to rediscover. When you touch one of these, start here.
 - Box-set parents: `MainWindow::bulkMatchTargetIds_` expands a selected parent
   to include its child titles, so matching a set matches its discs too.
 
+### Menu shortcuts & QKeySequence standard keys
+
+- On **Windows**, `QKeySequence::Quit` and `QKeySequence::Preferences` don't
+  resolve to a key chord — they map to the named system keys `Qt::Key_Exit` /
+  `Qt::Key_Settings`, whose text is the bare word "Exit" / "Settings". A `QMenu`
+  paints that word in the item's right-hand *shortcut* column, and with the
+  German Qt translation (`qtbase_de.qm`) loaded it becomes "Beenden" /
+  "Einstellungen" — so the entry looks like it has a doubled label
+  ("Einstellungen … Einstellungen"). `QKeySequence::Refresh` → F5 is a real key
+  and is unaffected.
+- Fixed with `setStandardShortcut()` (anon namespace in `MainWindow.cpp`): it
+  assigns a standard-key shortcut only when the portable text carries a modifier
+  (`+`) or is a function key (`^F\d+$`). This keeps F5 and Linux's Ctrl+Q while
+  dropping the phantom named-key text on Windows. **Don't go back to bare
+  `action->setShortcut(QKeySequence::Quit/Preferences)`** — route standard keys
+  through the helper.
+
 ## Useful references
 
 - DVD Profiler 4 XML schema (community-mirrored, no longer on invelos.com)
