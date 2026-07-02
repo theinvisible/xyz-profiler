@@ -2,12 +2,11 @@
 
 #include "models/MovieTreeModel.h"
 #include "ui/CoverArt.h"
-#include "ui/CoverCache.h"
+#include "ui/CoverLoader.h"
 #include "ui/IconFactory.h"
 #include "ui/Theme.h"
 
 #include <QPainter>
-#include <QPainterPath>
 #include <QPixmapCache>
 
 namespace xyz {
@@ -35,28 +34,26 @@ QPixmap starPixmap(bool on, qreal dpr)
 QPixmap rowCover(const QString& path, const QString& title,
                  const QString& format, qreal dpr)
 {
-    const QString id = path.isEmpty() ? title : path;
-    const QString key = CoverCache::key(id, QStringLiteral("row_%1").arg(dpr));
-    QPixmap pm;
-    if (QPixmapCache::find(key, &pm)) return pm;
-
+    // Real cover: cache hit or a background decode kicked off by CoverLoader
+    // (never a synchronous decode in the paint path — that was the scroll
+    // stutter). The radius matches the old per-paint clip.
     if (!path.isEmpty()) {
-        QPixmap raw(path);
-        if (!raw.isNull()) {
-            const QSize target = QSize(kCoverW, kCoverH) * dpr;
-            QPixmap scaled = raw.scaled(target, Qt::KeepAspectRatioByExpanding,
-                                        Qt::SmoothTransformation);
-            const int dx = (scaled.width()  - target.width())  / 2;
-            const int dy = (scaled.height() - target.height()) / 2;
-            pm = scaled.copy(qMax(0, dx), qMax(0, dy),
-                             target.width(), target.height());
-            pm.setDevicePixelRatio(dpr);
-        }
+        const QPixmap pm = CoverLoader::instance()->pixmap(
+            path, QStringLiteral("row"), QSize(kCoverW, kCoverH), dpr, 3.0);
+        if (!pm.isNull())
+            return pm;
     }
-    if (pm.isNull())
-        pm = CoverArt::placeholder(title, 0, format, QSize(kCoverW, kCoverH), false, dpr);
 
-    QPixmapCache::insert(key, pm);
+    // Placeholder — also the stand-in while the real cover decodes. Cached
+    // under a title key so it never shadows the path-keyed real cover.
+    const QString key = QStringLiteral("xprow_ph_%1_%2")
+        .arg(title, QString::number(dpr));
+    QPixmap pm;
+    if (!QPixmapCache::find(key, &pm)) {
+        pm = CoverArt::placeholder(title, 0, format, QSize(kCoverW, kCoverH),
+                                   false, dpr);
+        QPixmapCache::insert(key, pm);
+    }
     return pm;
 }
 
@@ -123,13 +120,10 @@ void MovieRowDelegate::paintTitle(QPainter* p, const QStyleOptionViewItem& opt,
         const QString path   = index.data(MovieTreeModel::CoverPathRole).toString();
         const QString title  = index.data(Qt::DisplayRole).toString();
         const QString format = index.data(MovieTreeModel::FormatNameRole).toString();
+        // Corners are baked into the cached pixmap (loader / placeholder) —
+        // no clip path per row per frame.
         const QPixmap pm = rowCover(path, title, format, dpr);
-        p->save();
-        QPainterPath clip;
-        clip.addRoundedRect(QRectF(coverRect), 3, 3);
-        p->setClipPath(clip);
         p->drawPixmap(coverRect, pm);
-        p->restore();
         p->setPen(QPen(QColor(0, 0, 0, 40), 1));
         p->setBrush(Qt::NoBrush);
         p->drawRoundedRect(QRectF(coverRect).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);

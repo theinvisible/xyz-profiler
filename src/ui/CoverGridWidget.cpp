@@ -2,7 +2,7 @@
 
 #include "models/MovieListModel.h"
 #include "ui/CoverArt.h"
-#include "ui/CoverCache.h"
+#include "ui/CoverLoader.h"
 #include "ui/Theme.h"
 
 #include <QItemSelectionModel>
@@ -96,27 +96,15 @@ void CoverDelegate::paint(QPainter* painter,
     const int     year      = index.data(MovieListModel::YearRole).toInt();
     const QString format    = index.data(MovieListModel::FormatRole).toString();
 
+    // Never decode in the paint path: CoverLoader returns only what is
+    // already cached and decodes misses on a worker pool (coverReady →
+    // viewport repaint). Until then the gradient placeholder stands in.
     QPixmap cover;
-    bool real = false;
-    if (!coverPath.isEmpty()) {
-        const QString key = CoverCache::key(coverPath, QStringLiteral("grid"));
-        if (!QPixmapCache::find(key, &cover)) {
-            QPixmap raw(coverPath);
-            if (!raw.isNull()) {
-                const QSize target = QSize(kCoverW, kCoverH) * dpr;
-                QPixmap scaled = raw.scaled(target, Qt::KeepAspectRatioByExpanding,
-                                            Qt::SmoothTransformation);
-                const int dx = (scaled.width()  - target.width())  / 2;
-                const int dy = (scaled.height() - target.height()) / 2;
-                cover = scaled.copy(qMax(0, dx), qMax(0, dy),
-                                    target.width(), target.height());
-                cover.setDevicePixelRatio(dpr);
-                QPixmapCache::insert(key, cover);
-            }
-        }
-        real = !cover.isNull();
-    }
-    if (!real)
+    if (!coverPath.isEmpty())
+        cover = CoverLoader::instance()->pixmap(
+            coverPath, QStringLiteral("grid"), QSize(kCoverW, kCoverH), dpr,
+            kCoverRadius);
+    if (cover.isNull())
         cover = gridPlaceholder(title, year, dpr);
 
     // Drop shadow under the cover.
@@ -127,12 +115,9 @@ void CoverDelegate::paint(QPainter* painter,
                              kCoverRadius, kCoverRadius);
     painter->restore();
 
-    painter->save();
-    QPainterPath clip;
-    clip.addRoundedRect(QRectF(coverRect), kCoverRadius, kCoverRadius);
-    painter->setClipPath(clip);
+    // Corners are baked into the cached pixmap (CoverLoader for real covers,
+    // CoverArt::placeholder for the fallback) — no per-tile clip path needed.
     painter->drawPixmap(coverRect, cover);
-    painter->restore();
 
     // --- Format badge (bottom-right) -------------------------------------
     // Painted as an overlay so it shows over real covers too — previously the
@@ -275,17 +260,24 @@ CoverGridWidget::CoverGridWidget(QWidget* parent)
     setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     verticalScrollBar()->setSingleStep(24);
 
-    // Keep several screenfuls of rendered tiles cached so scrolling/hover
-    // never re-renders a visible cover or placeholder (default 10 MB is too
-    // small for a grid of posters).
-    if (QPixmapCache::cacheLimit() < 64 * 1024)
-        QPixmapCache::setCacheLimit(64 * 1024);
+    // Size the cache so an entire large collection's tiles fit at once
+    // (369 tiles × ~150 KB at 1x is already ~54 MB; high-DPI more than
+    // doubles that). The old 64 MB limit caused eviction churn: scrolling
+    // back re-decoded covers that had just been displayed.
+    if (QPixmapCache::cacheLimit() < 256 * 1024)
+        QPixmapCache::setCacheLimit(256 * 1024);
 
     setEditTriggers(QAbstractItemView::NoEditTriggers);
     setFrameShape(QFrame::NoFrame);
     viewport()->setAutoFillBackground(false);
 
     setItemDelegate(new CoverDelegate(this));
+
+    // Repaint when a background decode lands in the cache. update() calls
+    // coalesce into one paint per frame, and by then every visible tile is
+    // a cache hit.
+    connect(CoverLoader::instance(), &CoverLoader::coverReady,
+            this, [this] { viewport()->update(); });
 }
 
 void CoverGridWidget::setModel(QAbstractItemModel* model)

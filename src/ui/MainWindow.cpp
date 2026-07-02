@@ -9,6 +9,7 @@
 #include "ui/CalendarWindow.h"
 #include "ui/CoverCache.h"
 #include "ui/CoverGridWidget.h"
+#include "ui/CoverLoader.h"
 #include "ui/EditMovieDialog.h"
 #include "ui/IconFactory.h"
 #include "ui/ImportPreviewDialog.h"
@@ -321,6 +322,10 @@ void MainWindow::buildCentralWidget_()
     m_treeView->setAnimated(true);
     m_treeView->setUniformRowHeights(true);
     m_treeView->setMouseTracking(true);
+    // Smooth pixel scrolling — the per-item default jumps a full 38px row
+    // per step, which reads as stutter when flinging through hundreds of
+    // titles.
+    m_treeView->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     m_treeView->header()->setStretchLastSection(true);
     m_treeView->header()->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -394,9 +399,28 @@ void MainWindow::buildCentralWidget_()
         m_settings->detailSplitterState().toLatin1());
     if (!splitState.isEmpty())
         m_splitter->restoreState(splitState);
-    connect(m_splitter, &QSplitter::splitterMoved, this, [this](int, int) {
+    // Debounced: splitterMoved fires per mouse pixel, and persisting goes
+    // through QSettings::sync() — a synchronous INI rewrite on disk. Doing
+    // that per drag event is what made dragging the handle feel sluggish;
+    // save once, shortly after the drag settles.
+    auto* splitterSave = new QTimer(this);
+    splitterSave->setSingleShot(true);
+    splitterSave->setInterval(300);
+    const auto persistSplitter = [this] {
         m_settings->setDetailSplitterState(
             QString::fromLatin1(m_splitter->saveState().toBase64()));
+    };
+    connect(splitterSave, &QTimer::timeout, this, persistSplitter);
+    connect(m_splitter, &QSplitter::splitterMoved, splitterSave,
+            qOverload<>(&QTimer::start));
+    // A drag followed by an immediate quit must not lose the new position:
+    // flush a pending save before shutdown.
+    connect(qApp, &QCoreApplication::aboutToQuit, this,
+            [splitterSave, persistSplitter] {
+        if (splitterSave->isActive()) {
+            splitterSave->stop();
+            persistSplitter();
+        }
     });
 
     // ---- Signals -----------------------------------------------------------
@@ -552,6 +576,11 @@ void MainWindow::connectController_()
         if (m_treeView)   m_treeView->viewport()->update();
         if (m_detailPane) m_detailPane->refreshTheme();
     });
+    // Row-swatch decodes finish on the worker pool; repaint the list so the
+    // placeholder gets replaced. (The cover grid wires itself up in its own
+    // constructor.)
+    connect(CoverLoader::instance(), &CoverLoader::coverReady, this,
+            [this] { if (m_treeView) m_treeView->viewport()->update(); });
 }
 
 void MainWindow::connectSettings_()

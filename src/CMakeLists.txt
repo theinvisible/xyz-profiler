@@ -98,6 +98,8 @@ qt_add_executable(xyz-profiler
     ui/CoverArt.h
     ui/CoverArt.cpp
     ui/CoverCache.h
+    ui/CoverLoader.h
+    ui/CoverLoader.cpp
     ui/FlowLayout.h
     ui/FlowLayout.cpp
     ui/MovieRowDelegate.h
