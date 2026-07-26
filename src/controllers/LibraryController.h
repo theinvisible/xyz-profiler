@@ -7,6 +7,7 @@
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbTypes.h"
 
+#include <QDate>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QObject>
@@ -34,6 +35,9 @@ public:
     QString libraryPath()   const { return m_libraryPath; }
     bool    libraryOpen()   const;
     int     movieCount()    const;
+    // How many of those are on the wishlist rather than owned. Counted over
+    // the loaded list, so it follows the active search like movieCount() does.
+    int     wishlistCount() const;
     QString statusMessage() const { return m_statusMessage; }
 
     // ---- Models for views ---------------------------------------------------
@@ -87,6 +91,13 @@ public:
     void updateMovie(const Movie& edited);
     // Delete an entry by id (after the UI has confirmed). Refreshes the views.
     void deleteMovie(const QString& id);
+
+    // Lending. Both apply the pure mutations from domain/LoanOps.h to a copy
+    // of the movie and go out through updateMovie(), so the loan flags and the
+    // appended history entry are persisted in one upsert.
+    void lendMovie(const QString& id, const QString& firstName,
+                   const QString& lastName, const QDate& due);
+    void returnMovie(const QString& id);
     // Create a brand-new collection entry from a TMDb movie (the "add title"
     // flow): fetches full details, inserts, selects it, and downloads the poster.
     // `format` is the disc format the user chose ("DVD" / "BluRay" / "UHD").

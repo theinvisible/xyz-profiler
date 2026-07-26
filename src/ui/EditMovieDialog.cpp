@@ -13,6 +13,7 @@
 #include <QFont>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -27,6 +28,8 @@
 #include <QScrollArea>
 #include <QSpinBox>
 #include <QTabWidget>
+#include <QTableWidget>
+#include <QTableWidgetItem>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
@@ -231,6 +234,46 @@ void EditMovieDialog::buildUi_()
     grid->addWidget(m_ratingValue, r, 3);
     ++r;
 
+    // The remaining three review axes DP4 ships next to the film rating.
+    const auto makeRatingSpin = [this](int value) {
+        auto* s = new QSpinBox;
+        s->setRange(0, 10);
+        s->setSpecialValueText(tr("Unrated"));
+        s->setValue(value);
+        return s;
+    };
+    m_ratingVideo  = makeRatingSpin(m_movie.review.video);
+    m_ratingAudio  = makeRatingSpin(m_movie.review.audio);
+    m_ratingExtras = makeRatingSpin(m_movie.review.extras);
+    grid->addWidget(fieldLabel(tr("Video rating")), r, 0);
+    grid->addWidget(m_ratingVideo, r, 1);
+    grid->addWidget(fieldLabel(tr("Audio rating")), r, 2);
+    grid->addWidget(m_ratingAudio, r, 3);
+    ++r;
+
+    // Collection status. DP4 keeps wishlist entries in the same collection
+    // file, so this is the only way to tell the two apart after an import.
+    m_status = new QComboBox;
+    m_status->addItem(tr("Owned"),    QVariant(QStringLiteral("Owned")));
+    m_status->addItem(tr("Wishlist"), QVariant(QStringLiteral("Wishlist")));
+    {
+        const int idx = m_status->findData(m_movie.membership.type);
+        if (idx >= 0) {
+            m_status->setCurrentIndex(idx);
+        } else if (!m_movie.membership.type.isEmpty()) {
+            // DP4 has further types ("Order", "For Sale", …) — keep whatever
+            // the source shipped instead of silently rewriting it to Owned.
+            m_status->addItem(m_movie.membership.type,
+                              QVariant(m_movie.membership.type));
+            m_status->setCurrentIndex(m_status->count() - 1);
+        }
+    }
+    grid->addWidget(fieldLabel(tr("Extras rating")), r, 0);
+    grid->addWidget(m_ratingExtras, r, 1);
+    grid->addWidget(fieldLabel(tr("Collection")), r, 2);
+    grid->addWidget(m_status, r, 3);
+    ++r;
+
     grid->addWidget(fieldLabel(tr("Minimum age")), r, 0);
     grid->addWidget(m_ratingAge, r, 1);
     ++r;
@@ -265,6 +308,58 @@ void EditMovieDialog::buildUi_()
     ++r;
     grid->addWidget(fieldLabel(tr("Purchase place")), r, 0);
     grid->addWidget(m_purchasePlace, r, 1, 1, 3);
+    ++r;
+
+    // Amount + currency in one cell. The value stays a string so DP4's
+    // locale-dependent bodies ("14.99", "12,99") round-trip untouched.
+    const auto makeAmountEditor = [this](const MonetaryAmount& amount,
+                                         QLineEdit** value, QLineEdit** currency) {
+        auto* host = new QWidget;
+        auto* lay = new QHBoxLayout(host);
+        lay->setContentsMargins(0, 0, 0, 0);
+        lay->setSpacing(6);
+        *value = new QLineEdit(amount.value);
+        (*value)->setPlaceholderText(tr("Amount"));
+        *currency = new QLineEdit(amount.denominationType);
+        (*currency)->setPlaceholderText(tr("EUR"));
+        (*currency)->setMaximumWidth(70);
+        lay->addWidget(*value, 1);
+        lay->addWidget(*currency);
+        return host;
+    };
+
+    auto* priceEditor = makeAmountEditor(m_movie.purchase.price,
+                                         &m_purchasePrice, &m_purchaseCurrency);
+    auto* srpEditor = makeAmountEditor(m_movie.srp, &m_srp, &m_srpCurrency);
+    grid->addWidget(fieldLabel(tr("Price paid")), r, 0);
+    grid->addWidget(priceEditor, r, 1);
+    grid->addWidget(fieldLabel(tr("SRP")), r, 2);
+    grid->addWidget(srpEditor, r, 3);
+    ++r;
+
+    // DP4 bookkeeping fields. Rarely touched, but they are imported and were
+    // previously unreachable, which reads as data loss to a migrating user.
+    m_collectionNumber = new QSpinBox;
+    m_collectionNumber->setRange(0, 999999);
+    m_collectionNumber->setSpecialValueText(tr("None"));
+    m_collectionNumber->setValue(m_movie.collectionNumber);
+    m_countAs = new QSpinBox;
+    m_countAs->setRange(0, 999);
+    m_countAs->setToolTip(tr("How many titles this entry counts as in the "
+                             "collection total"));
+    m_countAs->setValue(m_movie.countAs);
+    grid->addWidget(fieldLabel(tr("Collection no.")), r, 0);
+    grid->addWidget(m_collectionNumber, r, 1);
+    grid->addWidget(fieldLabel(tr("Counts as")), r, 2);
+    grid->addWidget(m_countAs, r, 3);
+    ++r;
+
+    m_wishPriority = new QSpinBox;
+    m_wishPriority->setRange(0, 99);
+    m_wishPriority->setSpecialValueText(tr("None"));
+    m_wishPriority->setValue(m_movie.wishPriority);
+    grid->addWidget(fieldLabel(tr("Wish priority")), r, 0);
+    grid->addWidget(m_wishPriority, r, 1);
     ++r;
 
     grid->setColumnStretch(1, 1);
@@ -331,6 +426,58 @@ void EditMovieDialog::buildUi_()
     m_notes = new QPlainTextEdit(m_movie.notes);
     m_notes->setMinimumHeight(70);
     contentTab->insertWidget(contentTab->count() - 1, m_notes, 1);
+
+    // ---- Custom fields -----------------------------------------------------
+    // DP4 power users keep a lot in here (watched dates, shelf slots, lending
+    // notes). Order is positional in the DB, so the table's row order is the
+    // stored order.
+    contentTab->insertWidget(contentTab->count() - 1, fieldLabel(tr("Custom fields")));
+    m_customFields = new QTableWidget(0, 2);
+    m_customFields->setHorizontalHeaderLabels({tr("Name"), tr("Value")});
+    m_customFields->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
+    m_customFields->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
+    m_customFields->verticalHeader()->setVisible(false);
+    m_customFields->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_customFields->setMinimumHeight(110);
+    for (const auto& field : m_movie.customFields) {
+        const int row = m_customFields->rowCount();
+        m_customFields->insertRow(row);
+        m_customFields->setItem(row, 0, new QTableWidgetItem(field.name));
+        m_customFields->setItem(row, 1, new QTableWidgetItem(field.value));
+    }
+    contentTab->insertWidget(contentTab->count() - 1, m_customFields, 1);
+
+    {
+        auto* buttons = new QWidget;
+        auto* bl = new QHBoxLayout(buttons);
+        bl->setContentsMargins(0, 0, 0, 0);
+        bl->setSpacing(6);
+        auto* addField = new QPushButton(tr("Add field"));
+        auto* removeField = new QPushButton(tr("Remove field"));
+        connect(addField, &QPushButton::clicked, this, [this] {
+            const int row = m_customFields->rowCount();
+            m_customFields->insertRow(row);
+            m_customFields->setItem(row, 0, new QTableWidgetItem);
+            m_customFields->setItem(row, 1, new QTableWidgetItem);
+            m_customFields->editItem(m_customFields->item(row, 0));
+        });
+        connect(removeField, &QPushButton::clicked, this, [this] {
+            const int row = m_customFields->currentRow();
+            if (row >= 0) m_customFields->removeRow(row);
+        });
+        bl->addWidget(addField);
+        bl->addWidget(removeField);
+        bl->addStretch();
+        contentTab->insertWidget(contentTab->count() - 1, buttons);
+    }
+
+    // ---- My links ----------------------------------------------------------
+    // DP4's <MyLinks> is a free-text body of unclear shape, so it is edited
+    // and stored verbatim rather than parsed into structured link entries.
+    contentTab->insertWidget(contentTab->count() - 1, fieldLabel(tr("My links")));
+    m_myLinks = new QPlainTextEdit(m_movie.myLinks);
+    m_myLinks->setMinimumHeight(55);
+    contentTab->insertWidget(contentTab->count() - 1, m_myLinks, 1);
 
     root->addWidget(tabs, 1);
 
@@ -716,9 +863,59 @@ void EditMovieDialog::commit_()
     m_movie.overview      = m_overview->toPlainText();
     m_movie.notes         = m_notes->toPlainText();
 
+    m_movie.review.video  = m_ratingVideo->value();
+    m_movie.review.audio  = m_ratingAudio->value();
+    m_movie.review.extras = m_ratingExtras->value();
+
+    // Rebuild from the table. A row with no name has nothing to key the value
+    // on, so it is dropped rather than stored as an unnamed field.
+    m_movie.customFields.clear();
+    for (int row = 0; row < m_customFields->rowCount(); ++row) {
+        const QTableWidgetItem* nameItem  = m_customFields->item(row, 0);
+        const QTableWidgetItem* valueItem = m_customFields->item(row, 1);
+        const QString name = nameItem ? nameItem->text().trimmed() : QString();
+        if (name.isEmpty()) continue;
+        CustomField field;
+        field.name  = name;
+        field.value = valueItem ? valueItem->text() : QString();
+        m_movie.customFields << field;
+    }
+
+    m_movie.collectionNumber = m_collectionNumber->value();
+    m_movie.countAs          = m_countAs->value();
+    m_movie.wishPriority     = m_wishPriority->value();
+    m_movie.myLinks          = m_myLinks->toPlainText();
+
     const QDate d = m_purchaseDate->date();
     m_movie.purchase.date = (d == kNoDate) ? QDate() : d;
 
+    // formattedValue is the *source's* locale formatting and goes stale the
+    // moment the amount or currency changes. Clear it on edit and let
+    // displayAmount() fall back to "value currency" — synthesising a
+    // replacement would guess at conventions we don't know.
+    const auto applyAmount = [](MonetaryAmount& amount, const QLineEdit* value,
+                                const QLineEdit* currency) {
+        const QString nextValue    = value->text().trimmed();
+        const QString nextCurrency = currency->text().trimmed();
+        if (nextValue == amount.value && nextCurrency == amount.denominationType)
+            return;
+        amount.value            = nextValue;
+        amount.denominationType = nextCurrency;
+        amount.formattedValue.clear();
+        amount.denominationDescription.clear();
+    };
+    applyAmount(m_movie.purchase.price, m_purchasePrice, m_purchaseCurrency);
+    applyAmount(m_movie.srp, m_srp, m_srpCurrency);
+
+    // Only re-derive IsPartOfOwnedCollection when the user actually changed
+    // the status — otherwise an imported "Order" entry would silently be
+    // reclassified as owned on the next unrelated edit.
+    const QString status = m_status->currentData().toString();
+    if (status != m_movie.membership.type) {
+        m_movie.membership.type = status;
+        m_movie.membership.isPartOfOwnedCollection =
+            !isWishlistMembership(m_movie.membership);
+    }
     if (m_movie.membership.type.isEmpty())
         m_movie.membership.type = QStringLiteral("Owned");
     if (!m_movie.profileTimestamp.isValid())

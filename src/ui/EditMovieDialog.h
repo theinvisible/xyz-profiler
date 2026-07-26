@@ -15,6 +15,7 @@ class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QSpinBox;
+class QTableWidget;
 class QVBoxLayout;
 class QWidget;
 
@@ -78,16 +79,27 @@ private:
     QSpinBox*       m_year        = nullptr;
     QSpinBox*       m_runtime     = nullptr;
     QComboBox*      m_format      = nullptr;
+    QComboBox*      m_status      = nullptr;   // membership: Owned / Wishlist / …
     QLineEdit*      m_ratingSystem = nullptr;
     QLineEdit*      m_ratingValue = nullptr;
     QSpinBox*       m_ratingAge   = nullptr;
-    QSpinBox*       m_rating      = nullptr;
+    QSpinBox*       m_rating      = nullptr;   // review.film
+    QSpinBox*       m_ratingVideo = nullptr;
+    QSpinBox*       m_ratingAudio = nullptr;
+    QSpinBox*       m_ratingExtras = nullptr;
     QLineEdit*      m_studios     = nullptr;
     QLineEdit*      m_countries   = nullptr;
     QLineEdit*      m_mediaCompanies = nullptr;
     QLineEdit*      m_location    = nullptr;
     QDateEdit*      m_purchaseDate = nullptr;
     QLineEdit*      m_purchasePlace = nullptr;
+    QLineEdit*      m_purchasePrice = nullptr;
+    QLineEdit*      m_purchaseCurrency = nullptr;
+    QLineEdit*      m_srp         = nullptr;
+    QLineEdit*      m_srpCurrency = nullptr;
+    QSpinBox*       m_collectionNumber = nullptr;
+    QSpinBox*       m_countAs     = nullptr;
+    QSpinBox*       m_wishPriority = nullptr;
     QLabel*         m_coverFrontPreview = nullptr;
     QLabel*         m_coverBackPreview = nullptr;
     QPushButton*    m_chooseFrontCover = nullptr;
@@ -99,6 +111,8 @@ private:
     QLineEdit*      m_genreInput  = nullptr;
     QPlainTextEdit* m_overview    = nullptr;
     QPlainTextEdit* m_notes       = nullptr;
+    QPlainTextEdit* m_myLinks     = nullptr;
+    QTableWidget*   m_customFields = nullptr;
 
     QLineEdit*      m_tmdbSearch  = nullptr;
     QListWidget*    m_tmdbResults = nullptr;

@@ -12,10 +12,14 @@ class MovieTreeModel : public QAbstractItemModel {
     Q_OBJECT
 
 public:
+    // APPEND ONLY. SettingsController persists the visible-column set and the
+    // sort column as raw indices, so inserting anywhere but at the end
+    // silently reshuffles the user's saved layout.
     enum Column {
         Title = 0, OriginalTitle, SortTitle, Year, Runtime, Format,
         Rating, RatingAge, Director, Genres, Studios, CaseType,
-        AspectRatio, TmdbId, PurchaseDate, Loaned, BoxSetParent, ColumnCount
+        AspectRatio, TmdbId, PurchaseDate, Loaned, BoxSetParent,
+        RatingVideo, RatingAudio, RatingExtras, ColumnCount
     };
 
     // Column-independent roles for the custom row delegate — return movie-level
@@ -27,6 +31,8 @@ public:
         FormatNameRole,      // raw format string ("DVD" / "BluRay" / "UHD")
         IsBoxSetParentRole,
         AgeRole,             // content-rating age (FSK)
+        MembershipTypeRole,  // DP4 <CollectionType> body: "Owned", "Wishlist", …
+        MembershipIsOwnedRole,
     };
 
     explicit MovieTreeModel(QObject* parent = nullptr);

@@ -1,5 +1,7 @@
 #include "SettingsController.h"
 
+#include "domain/CollectionMembership.h"
+
 #include <QDir>
 #include <QSettings>
 #include <QStandardPaths>
@@ -18,6 +20,7 @@ constexpr auto kKeyTableSortDesc = "ui/table_sort_desc";
 constexpr auto kKeySplitterState = "ui/detail_splitter_state";
 constexpr auto kKeyCalBasis      = "ui/calendar_basis";
 constexpr auto kKeyCalView       = "ui/calendar_view";
+constexpr auto kKeyStatusFilter  = "ui/collection_status_filter";
 
 constexpr auto kDefaultColumns = "title;year;runtime;format;ratingValue;directorName";
 
@@ -38,7 +41,8 @@ SettingsController::SettingsController(QObject* parent)
       m_viewMode(QStringLiteral("grid")),
       m_visibleTableColumns(QString::fromLatin1(kDefaultColumns)),
       m_calendarDateBasis(QStringLiteral("release")),
-      m_calendarView(QStringLiteral("month"))
+      m_calendarView(QStringLiteral("month")),
+      m_collectionStatusFilter(QStringLiteral("owned"))
 {
     load_();
 }
@@ -62,6 +66,8 @@ void SettingsController::load_()
                                          QStringLiteral("release")).toString();
     m_calendarView      = m_store->value(QLatin1String(kKeyCalView),
                                          QStringLiteral("month")).toString();
+    m_collectionStatusFilter = m_store->value(QLatin1String(kKeyStatusFilter),
+                                              QStringLiteral("owned")).toString();
 }
 
 void SettingsController::write_(const QString& key, const QVariant& value)
@@ -161,6 +167,17 @@ void SettingsController::setCalendarView(const QString& view)
     m_calendarView = next;
     write_(QString::fromLatin1(kKeyCalView), m_calendarView);
     emit calendarViewChanged();
+}
+
+void SettingsController::setCollectionStatusFilter(const QString& status)
+{
+    // Normalise through the domain enum so an edited INI can't put the views
+    // into a state the filter proxy doesn't know.
+    const QString next = collectionStatusKey(collectionStatusFromKey(status));
+    if (m_collectionStatusFilter == next) return;
+    m_collectionStatusFilter = next;
+    write_(QString::fromLatin1(kKeyStatusFilter), m_collectionStatusFilter);
+    emit collectionStatusFilterChanged();
 }
 
 QString SettingsController::resolveTmdbApiKey(const SettingsController& settings)

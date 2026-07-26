@@ -143,6 +143,8 @@ QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
     case FormatNameRole:     return m.format;
     case IsBoxSetParentRole: return m.boxSet.isParent;
     case AgeRole:            return m.rating.age;
+    case MembershipTypeRole: return m.membership.type;
+    case MembershipIsOwnedRole: return m.membership.isPartOfOwnedCollection;
     default: break;
     }
 
@@ -165,6 +167,9 @@ QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
         case PurchaseDate:  return m.purchase.date.isValid() ? m.purchase.date.toString(Qt::ISODate) : QString();
         case Loaned:        return m.loan.loaned ? QStringLiteral("✓") : QString();
         case BoxSetParent:  return m.boxSet.isParent ? QStringLiteral("✓") : QString();
+        case RatingVideo:   return m.review.video  > 0 ? QString::number(m.review.video)  : QString();
+        case RatingAudio:   return m.review.audio  > 0 ? QString::number(m.review.audio)  : QString();
+        case RatingExtras:  return m.review.extras > 0 ? QString::number(m.review.extras) : QString();
         }
     }
     if (role == Qt::UserRole) {
@@ -192,6 +197,9 @@ QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
         case PurchaseDate:  return m.purchase.date;
         case Loaned:        return m.loan.loaned;
         case BoxSetParent:  return m.boxSet.isParent;
+        case RatingVideo:   return m.review.video;
+        case RatingAudio:   return m.review.audio;
+        case RatingExtras:  return m.review.extras;
         }
     }
     if (role == Qt::FontRole && m.boxSet.isParent) {
@@ -202,6 +210,7 @@ QVariant MovieTreeModel::columnData(const Movie& m, int col, int role)
     if (role == Qt::TextAlignmentRole) {
         switch (col) {
         case Year: case Runtime: case RatingAge: case TmdbId:
+        case RatingVideo: case RatingAudio: case RatingExtras:
             return static_cast<int>(Qt::AlignRight | Qt::AlignVCenter);
         }
     }
@@ -236,6 +245,9 @@ QVariant MovieTreeModel::headerData(int section, Qt::Orientation orientation, in
     case PurchaseDate:  return tr("Purchase Date");
     case Loaned:        return tr("Loaned");
     case BoxSetParent:  return tr("Box Set");
+    case RatingVideo:   return tr("Video");
+    case RatingAudio:   return tr("Audio");
+    case RatingExtras:  return tr("Extras");
     }
     return {};
 }

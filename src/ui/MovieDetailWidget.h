@@ -36,14 +36,22 @@ public:
     void clearSelection();
     void refreshTheme();
 
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override;
+
 Q_SIGNALS:
     void tmdbSearchRequested();
+    // The pane knows nothing about the library — MainWindow turns these into
+    // LibraryController::lendMovie / returnMovie for the current selection.
+    void lendRequested();
+    void returnRequested();
 
 private:
     void buildUi_();
     void buildHeader_(QVBoxLayout* contentLayout);
     void buildTabs_(QVBoxLayout* contentLayout);
 
+    void applyCover_();          // render the currently shown side into m_cover
     void populateHeader_(const Movie& m);
     void populateOverview_(const Movie& m);
     void populateCast_(const Movie& m);
@@ -66,20 +74,33 @@ private:
 
     // --- Header -------------------------------------------------------------
     QLabel*      m_cover     = nullptr;
+    QLabel*      m_coverFlip = nullptr;   // "Show back" / "Show front"
+    bool         m_showingBack = false;   // reset to the front on each selection
     QLabel*      m_title     = nullptr;
     QLabel*      m_original  = nullptr;
     QWidget*     m_metaRow   = nullptr;
     QHBoxLayout* m_metaLayout = nullptr;
     QWidget*     m_chips     = nullptr;         // FlowLayout host
     QWidget*     m_ratingRow = nullptr;
+    QWidget*     m_filmRatingBlock = nullptr;
     StarBar*     m_stars     = nullptr;
     QLabel*      m_ratingCap = nullptr;
+    // The other three DP4 review axes, beside the film score.
+    QWidget*     m_subRatings  = nullptr;
+    QLabel*      m_capVideo    = nullptr;
+    StarBar*     m_starsVideo  = nullptr;
+    QLabel*      m_capAudio    = nullptr;
+    StarBar*     m_starsAudio  = nullptr;
+    QLabel*      m_capExtras   = nullptr;
+    StarBar*     m_starsExtras = nullptr;
     QPushButton* m_tmdbBtn   = nullptr;
 
     // --- Loan banner --------------------------------------------------------
-    QFrame*  m_loanBanner = nullptr;
-    QLabel*  m_loanIcon   = nullptr;
-    QLabel*  m_loanText   = nullptr;
+    QWidget*     m_loanWrap   = nullptr;   // always visible; hosts banner + action
+    QFrame*      m_loanBanner = nullptr;   // warning frame, only while lent out
+    QLabel*      m_loanIcon   = nullptr;
+    QLabel*      m_loanText   = nullptr;
+    QPushButton* m_loanButton = nullptr;   // "Lend out…" / "Take back"
 
     // --- Tabs ---------------------------------------------------------------
     QTabWidget* m_tabs = nullptr;
@@ -102,6 +123,10 @@ private:
     // Notes tab
     QLabel*      m_notesText  = nullptr;
     QGridLayout* m_notesGrid  = nullptr;
+    QWidget*     m_customSection = nullptr;   // DP4 custom fields
+    QVBoxLayout* m_customLayout  = nullptr;
+    QWidget*     m_historySection = nullptr;  // loan history (Event list)
+    QVBoxLayout* m_historyLayout  = nullptr;
 };
 
 } // namespace xyz

@@ -36,12 +36,13 @@ xyz-profiler/
 │   │   ├── PurchaseInfo.h     date / place / gift / MonetaryAmount price
 │   │   ├── BoxSet.h           parentId + childIds + isParent
 │   │   ├── IdMetadata.h       parsed UPC: base / variant / locality / type
-│   │   ├── CollectionMembership.h  Owned/Wishlist + isPartOfOwnedCollection
+│   │   ├── CollectionMembership.h  Owned/Wishlist + CollectionStatus filter enum
 │   │   ├── RatingInfo.h       system / value / age / variant / details (FSK, MPAA)
 │   │   ├── VideoFormat.h      aspect / standard / color / dimensions / letterbox …
 │   │   ├── LoanInfo.h         loaned / due / user
 │   │   ├── Event.h            type / timestamp / note / user (loan history)
 │   │   ├── Review.h           own star ratings (film/video/audio/extras)
+│   │   ├── LoanOps.h          Pure lendItem()/returnItem() — LoanInfo + Event append
 │   │   ├── MediaFormat.h      canonicalMediaFormat() — DVD/BluRay/UHD/HDDVD vocabulary
 │   │   ├── MediaItem.h        Media-neutral base — everything reusable for games
 │   │   └── Movie.h            Movie : MediaItem (+ runtime, format, audio, video, …)
@@ -58,6 +59,7 @@ xyz-profiler/
 │   │   ├── TmdbTypes.h        Candidate / Genre / BulkMatch / DiscoverQuery / MovieDetails / ImageConfig
 │   │   └── TmdbClient.h/.cpp  Async search/searchFor/movie/configuration/discover; language = app locale
 │   ├── models/                Data models for views
+│   │   ├── CollectionFilterProxyModel.h/.cpp  Owned/Wishlist/All + hide box-set parents
 │   │   ├── MovieListModel.h/.cpp       QAbstractListModel (roles for cover grid)
 │   │   ├── MovieTreeModel.h/.cpp       QAbstractItemModel (list view: box-set tree)
 │   │   ├── MovieTableModel.h/.cpp      QAbstractTableModel (flat columns; legacy)
@@ -82,6 +84,7 @@ xyz-profiler/
 │       ├── AddTitleDialog.h/.cpp       "Add a title" — rich TMDb search/discover lookup + filters
 │       ├── EditMovieDialog.h/.cpp      Add/edit a movie: tabbed form, TMDb prefill, cover image editing
 │       ├── ImportPreviewDialog.h/.cpp  Two-phase import confirmation
+│       ├── LendDialog.h/.cpp           Lend out: borrower name + optional due date
 │       ├── SettingsDialog.h/.cpp       TMDb key, images dir, theme editor
 │       ├── CalendarBuckets.h/.cpp      Pure (testable) date bucketing — day/month/year, release|purchase
 │       ├── CalendarPaint.h/.cpp        Shared hybrid-cell painter + mini-cover cache (both calendar views)
@@ -96,6 +99,8 @@ xyz-profiler/
     ├── test_dvdprofiler_xml_importer.cpp   QtTest, registered with ctest
     ├── test_movie_repository.cpp
     ├── test_calendar_buckets.cpp
+    ├── test_domain_ops.cpp                 matchesStatus / displayAmount / LoanOps
+    ├── test_collection_filter.cpp          CollectionFilterProxyModel over the list model
     └── data/
         └── sample_collection.xml
 ```
@@ -204,8 +209,26 @@ Widgets / Sql / Svg / Test / LinguistTools.
   covers + overflow badge). Clicking a film opens its `MovieDetailWidget` in an
   anchored `MoviePopover`. Bucketing (`CalendarBuckets`) is pure + unit-tested;
   basis/view persist via `SettingsController`
+- **Collection status** (owned / wishlist): a toolbar filter backed by
+  `CollectionFilterProxyModel` on *both* views, defaulting to Owned and
+  persisted; a status combo in `EditMovieDialog`; the status bar splits the
+  headline count into owned vs. wishlist. DP4 keeps wishlist entries in the
+  same collection file, so without this they sat among the owned discs.
+  `domain/CollectionMembership.h` owns the `CollectionStatus` enum and the
+  `matchesStatus()` predicate (pure + unit-tested)
+- **Loan tracking**: lend / take back from the detail pane
+  (`LendDialog` → `LibraryController::lendMovie` / `returnMovie`), with the
+  imported DP4 `Event` list shown as a History section. The mutations live in
+  `domain/LoanOps.h` as pure functions taking the timestamp as a parameter,
+  so they are testable without a GUI or a database
+- **The rest of the imported-but-unreachable DP4 fields**: all four review
+  axes (film / video / audio / extras, incl. three optional list columns),
+  custom fields (shown *and* editable via a name/value table), purchase
+  price + SRP, collection number, "counts as", wish priority, my links, and
+  a click-to-flip back cover in the detail header
 - **User settings** (`SettingsController` + INI): TMDb key, images dir,
-  theme, view mode, table columns, sort state, calendar basis + view
+  theme, view mode, table columns, sort state, calendar basis + view,
+  collection status filter
 - **Two-phase import wizard**: file pick → background parse → preview
   dialog → progress bar → done
 - **Box-set grouping**: parents expandable in the list (tree) view with
@@ -213,16 +236,19 @@ Widgets / Sql / Svg / Test / LinguistTools.
 - **Internationalisation**: English + German via `qt_add_translations`
 - **Packaging**: Inno Setup script + GitHub Actions workflow
 
-**Validated against** the user's real 369-entry DP4 export. 54 unit tests
-across three binaries (importer + repository + calendar buckets).
+**Validated against** the user's real 369-entry DP4 export. Unit tests across
+five binaries (importer, repository, calendar buckets, domain ops, collection
+filter).
 
 ## Roadmap
 
-### Post-MVP (explicitly out of scope for v1)
-- Refresh-from-TMDb action (overwrite local metadata)
-- Loan tracking UI (data already imported)
-- Barcode scanning (EAN via webcam / phone companion)
-- Multi-user / sync
+See **`PLAN.md`** in the repository root for the full backlog, written from
+the perspective of a migrating DP4 user and grouped into: data that is
+imported but not surfaced (block A — done), capabilities DP4 had that we
+lack (block B), and where a modern replacement can go further (block C).
+
+Next up per that document: an advanced search / filter builder (the largest
+remaining gap against DP4), data export, and a statistics view.
 
 ## Conventions
 
@@ -311,6 +337,34 @@ Things that cost time to rediscover. When you touch one of these, start here.
   would stutter the perf-tuned grid scrolling. The generation map is an in-memory
   hash probe, GUI-thread only (no locking).
 
+### List-view columns are index-persisted — append only
+
+- `SettingsController::visibleTableColumns` stores the visible set as raw
+  `MovieTreeModel::Column` **indices** (`"0;3;9;5;6"`), and `tableSortRole`
+  stores the sort column the same way. Inserting a new column anywhere but
+  immediately before `ColumnCount` silently reshuffles every existing user's
+  saved layout and sort. The enum carries a comment saying so — keep it.
+- A new column needs four places in agreement: the `Column` enum,
+  `MovieTreeModel::columnData` (both the `Qt::DisplayRole` and the
+  `Qt::UserRole` sort-key branch), `headerData`, and
+  `MainWindow::gridRoleForColumn` — the last one maps the column onto the
+  cover grid's role *name* so both views sort identically.
+
+### Header resize modes are O(rows) per resize
+
+- `QHeaderView::ResizeToContents` re-queries the delegate's `sizeHint()` for
+  every row of the model on each geometry change. On the 369-title
+  collection that measured ~1 ms per resize step in a release build and
+  ~14 ms in a debug build, for a single column — enough to make dragging the
+  window edge visibly choppy. The Year column used to be `ResizeToContents`;
+  it is `Interactive` with a fixed width now. Don't reintroduce it for
+  columns whose width is predictable.
+- Related, and worth knowing before optimising anything in the UI: a **debug
+  build links Qt's debug DLLs and the debug CRT**, which makes the whole
+  paint stack 8–13× slower than release (grid repaint 2.5 ms → 22 ms, theme
+  switch 70 ms → 850 ms). Always confirm which CMake profile a performance
+  complaint came from before touching code.
+
 ### Settings writes are synchronous disk I/O
 
 - Every `SettingsController` setter goes through `write_()`, which calls
@@ -390,6 +444,41 @@ Things that cost time to rediscover. When you touch one of these, start here.
   frame (`MoviePopover`); `Qt::Popup` gives free close-on-outside/Esc. New string?
   run `lupdate` and add the German `.ts` entry (see `xyz::CalendarWindow` /
   `xyz::CalendarTimeline` contexts).
+
+### Collection status (owned / wishlist)
+
+- DP4 keeps wishlist entries **inside the same `Collection.xml`**, tagged via
+  `<CollectionType>`. The importer has always parsed this correctly into
+  `MediaItem::membership`; the gap was purely that nothing displayed or
+  filtered on it, so wishlist entries looked like owned discs and inflated
+  the title count.
+- `domain/CollectionMembership.h` is the single source of truth:
+  `CollectionStatus`, `isWishlistMembership()`, `matchesStatus()` and the
+  QSettings key conversions. **`Owned` deliberately means "not on the
+  wishlist"**, not `type == "Owned"` — DP4 also ships `Order` and `For Sale`,
+  and this keeps the two filters exhaustive so nothing can vanish from both.
+  There is a unit test asserting exactly that partition property.
+- `CollectionFilterProxyModel` serves both views. Its role ids are injected
+  (`setRoles`) because `MovieListModel` and `MovieTreeModel` have different
+  role enums. It also absorbed the grid's old "hide box-set parents" filter,
+  which used to be a `setFilterRole` + `"^false$"` regex — a bool→QString
+  →regex round trip per row.
+- The three remaining hard-coded `"Owned"` assignments
+  (`LibraryController::addMovieFromTmdb`, `MainWindow::showAddTitleDialog_`,
+  `EditMovieDialog::commit_`) are correct: they are defaults for *newly
+  created* titles. `commit_` only re-derives `isPartOfOwnedCollection` when
+  the user actually changed the status, so an imported `Order` entry is not
+  silently reclassified by an unrelated edit.
+
+### Monetary amounts keep the source's formatting
+
+- `MonetaryAmount::formattedValue` is DP4's own locale-formatted string
+  ("€14,99"). `displayAmount()` prefers it and falls back to
+  `value + " " + denominationType`.
+- **Every editor must clear `formattedValue` when the amount or the currency
+  changes** (`EditMovieDialog::commit_` does). We never synthesise a
+  replacement — we don't know the conventions the source used, and a stale
+  "€14,99" next to a newly typed `29.99` is worse than an unformatted value.
 
 ### Detail-pane free text (overview / notes) & HTML
 

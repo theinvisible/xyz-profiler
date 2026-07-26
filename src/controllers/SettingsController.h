@@ -26,6 +26,7 @@ public:
     QString detailSplitterState()  const { return m_detailSplitterState; }
     QString calendarDateBasis()    const { return m_calendarDateBasis; }
     QString calendarView()         const { return m_calendarView; }
+    QString collectionStatusFilter() const { return m_collectionStatusFilter; }
 
     void setTmdbApiKey(const QString& key);
     void setImagesDirectory(const QString& dir);
@@ -40,6 +41,9 @@ public:
     // active view ("month" | "year").
     void setCalendarDateBasis(const QString& basis);
     void setCalendarView(const QString& view);
+    // Which slice of the collection the views show:
+    // "owned" (default) | "wishlist" | "all". See domain/CollectionMembership.h.
+    void setCollectionStatusFilter(const QString& status);
 
     static QString resolveTmdbApiKey(const SettingsController& settings);
 
@@ -52,6 +56,7 @@ signals:
     void tableSortChanged();
     void calendarDateBasisChanged();
     void calendarViewChanged();
+    void collectionStatusFilterChanged();
 
 private:
     void load_();
@@ -68,6 +73,7 @@ private:
     QString    m_detailSplitterState;
     QString    m_calendarDateBasis;
     QString    m_calendarView;
+    QString    m_collectionStatusFilter;
 };
 
 } // namespace xyz

@@ -7,6 +7,7 @@
 #include "ui/Theme.h"
 
 #include <QDate>
+#include <QEvent>
 #include <QFontMetrics>
 #include <QFrame>
 #include <QGridLayout>
@@ -22,6 +23,8 @@
 #include <QStringList>
 #include <QTabWidget>
 #include <QVBoxLayout>
+
+#include <algorithm>
 
 namespace xyz {
 
@@ -110,23 +113,27 @@ QLabel* captionLabel(const QString& text)
     return l;
 }
 
-QLabel* valueLabel(const QString& text)
+// `rich` pins the label to Qt::RichText for values that went through
+// toDisplayHtml(); see the free-text note in CLAUDE.md — Qt::AutoText decides
+// per string and gets it wrong for text whose first tag follows a newline.
+QLabel* valueLabel(const QString& text, bool rich = false)
 {
     auto* l = new QLabel(text);
     l->setWordWrap(true);
     l->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    if (rich) l->setTextFormat(Qt::RichText);
     l->setStyleSheet(QStringLiteral("color:%1;").arg(Theme::current().text.name()));
     return l;
 }
 
-QWidget* makeField(const QString& label, const QString& value)
+QWidget* makeField(const QString& label, const QString& value, bool rich = false)
 {
     auto* w = new QWidget;
     auto* v = new QVBoxLayout(w);
     v->setContentsMargins(0, 0, 0, 0);
     v->setSpacing(3);
     v->addWidget(captionLabel(label));
-    v->addWidget(valueLabel(value));
+    v->addWidget(valueLabel(value, rich));
     return w;
 }
 
@@ -150,6 +157,20 @@ QLabel* chip(const QString& text)
         "border-radius:11px;padding:3px 10px;}")
         .arg(p.panel3.name(), p.text2.name(), p.border.name()));
     return l;
+}
+
+// DP4 writes its event types in English whatever the export's locale, and
+// LoanOps keeps writing the same vocabulary. Map the known ones to translated
+// labels and pass anything unfamiliar through unchanged.
+QString eventTypeLabel(const QString& type)
+{
+    if (type.compare(QLatin1String("Borrowed"), Qt::CaseInsensitive) == 0)
+        return MovieDetailWidget::tr("Lent out");
+    if (type.compare(QLatin1String("Returned"), Qt::CaseInsensitive) == 0)
+        return MovieDetailWidget::tr("Returned");
+    if (type.compare(QLatin1String("Watched"), Qt::CaseInsensitive) == 0)
+        return MovieDetailWidget::tr("Watched");
+    return type;
 }
 
 QLabel* dotSep()
@@ -225,11 +246,29 @@ void MovieDetailWidget::buildUi_()
     m_loanText = new QLabel;
     lb->addWidget(m_loanIcon);
     lb->addWidget(m_loanText, 1);
-    auto* bannerWrap = new QWidget;
-    auto* bw = new QVBoxLayout(bannerWrap);
+
+    // The wrapper stays visible for every title: the warning frame above only
+    // appears while something is lent out, but the action below is how you
+    // lend in the first place, so it must be reachable from any title.
+    m_loanWrap = new QWidget;
+    auto* bw = new QVBoxLayout(m_loanWrap);
     bw->setContentsMargins(16, 0, 16, 5);
+    bw->setSpacing(6);
     bw->addWidget(m_loanBanner);
-    cl->addWidget(bannerWrap);
+
+    auto* loanActions = new QHBoxLayout;
+    loanActions->setContentsMargins(0, 0, 0, 0);
+    m_loanButton = new QPushButton;
+    m_loanButton->setCursor(Qt::PointingHandCursor);
+    connect(m_loanButton, &QPushButton::clicked, this, [this] {
+        if (m_current.loan.loaned) Q_EMIT returnRequested();
+        else                       Q_EMIT lendRequested();
+    });
+    loanActions->addWidget(m_loanButton);
+    loanActions->addStretch();
+    bw->addLayout(loanActions);
+
+    cl->addWidget(m_loanWrap);
 
     buildTabs_(cl);
 
@@ -243,10 +282,24 @@ void MovieDetailWidget::buildHeader_(QVBoxLayout* contentLayout)
     h->setContentsMargins(16, 12, 16, 10);
     h->setSpacing(14);
 
+    // Cover column: the image plus the flip affordance. A caption link is more
+    // discoverable than an overlay icon and costs no per-paint work.
+    auto* coverColumn = new QVBoxLayout;
+    coverColumn->setSpacing(5);
     m_cover = new QLabel;
     m_cover->setFixedSize(150, 225);
     m_cover->setAlignment(Qt::AlignCenter);
-    h->addWidget(m_cover, 0, Qt::AlignTop);
+    m_cover->installEventFilter(this);
+    coverColumn->addWidget(m_cover);
+
+    m_coverFlip = captionLabel(tr("Show back"));
+    m_coverFlip->setAlignment(Qt::AlignHCenter);
+    m_coverFlip->setCursor(Qt::PointingHandCursor);
+    m_coverFlip->installEventFilter(this);
+    m_coverFlip->setVisible(false);
+    coverColumn->addWidget(m_coverFlip);
+    coverColumn->addStretch();
+    h->addLayout(coverColumn);
 
     auto* main = new QVBoxLayout;
     main->setSpacing(0);
@@ -277,14 +330,37 @@ void MovieDetailWidget::buildHeader_(QVBoxLayout* contentLayout)
     m_ratingRow = new QWidget;
     auto* rr = new QHBoxLayout(m_ratingRow);
     rr->setContentsMargins(0, 0, 0, 0);
-    rr->setSpacing(10);
-    auto* ratingBlock = new QVBoxLayout;
+    rr->setSpacing(22);
+
+    m_filmRatingBlock = new QWidget;
+    auto* ratingBlock = new QVBoxLayout(m_filmRatingBlock);
+    ratingBlock->setContentsMargins(0, 0, 0, 0);
     ratingBlock->setSpacing(4);
     m_stars = new StarBar(16);
     ratingBlock->addWidget(m_stars);
     m_ratingCap = captionLabel(tr("My rating"));
     ratingBlock->addWidget(m_ratingCap);
-    rr->addLayout(ratingBlock);
+    rr->addWidget(m_filmRatingBlock);
+
+    // DP4 rates four axes; the film score stays prominent and the technical
+    // ones sit beside it, each hidden when unrated.
+    m_subRatings = new QWidget;
+    auto* sub = new QGridLayout(m_subRatings);
+    sub->setContentsMargins(0, 0, 0, 0);
+    sub->setHorizontalSpacing(8);
+    sub->setVerticalSpacing(2);
+    const auto addAxis = [this, sub](const QString& caption, int row,
+                                     QLabel** cap, StarBar** bar) {
+        *cap = captionLabel(caption);
+        *bar = new StarBar(11);
+        sub->addWidget(*cap, row, 0);
+        sub->addWidget(*bar, row, 1);
+    };
+    addAxis(tr("Video"),  0, &m_capVideo,  &m_starsVideo);
+    addAxis(tr("Audio"),  1, &m_capAudio,  &m_starsAudio);
+    addAxis(tr("Extras"), 2, &m_capExtras, &m_starsExtras);
+    rr->addWidget(m_subRatings);
+
     rr->addStretch();
     main->addSpacing(16);
     main->addWidget(m_ratingRow);
@@ -429,6 +505,33 @@ void MovieDetailWidget::buildTabs_(QVBoxLayout* contentLayout)
         m_notesGrid->setColumnStretch(1, 1);
         l->addSpacing(20);
         l->addWidget(extra);
+
+        m_customSection = new QWidget;
+        auto* cf = new QVBoxLayout(m_customSection);
+        cf->setContentsMargins(0, 0, 0, 0);
+        cf->setSpacing(12);
+        cf->addWidget(subhead(tr("Custom fields")));
+        auto* customItems = new QWidget;
+        m_customLayout = new QVBoxLayout(customItems);
+        m_customLayout->setContentsMargins(0, 0, 0, 0);
+        m_customLayout->setSpacing(12);
+        cf->addWidget(customItems);
+        l->addSpacing(20);
+        l->addWidget(m_customSection);
+
+        m_historySection = new QWidget;
+        auto* hs = new QVBoxLayout(m_historySection);
+        hs->setContentsMargins(0, 0, 0, 0);
+        hs->setSpacing(9);
+        hs->addWidget(subhead(tr("History")));
+        auto* historyItems = new QWidget;
+        m_historyLayout = new QVBoxLayout(historyItems);
+        m_historyLayout->setContentsMargins(0, 0, 0, 0);
+        m_historyLayout->setSpacing(5);
+        hs->addWidget(historyItems);
+        l->addSpacing(20);
+        l->addWidget(m_historySection);
+
         l->addStretch();
         m_tabs->addTab(area, tr("Notes"));
     }
@@ -486,17 +589,41 @@ void MovieDetailWidget::populateTab_(int index)
     m_tabPopulated[index] = true;
 }
 
-void MovieDetailWidget::populateHeader_(const Movie& m)
+// Click the cover (or the caption beneath it) to flip between the front and
+// back scans. QLabel has no clicked() signal and a whole subclass would be
+// overkill for two widgets.
+bool MovieDetailWidget::eventFilter(QObject* watched, QEvent* event)
 {
-    const Palette& pal = Theme::current();
-    const qreal dpr = devicePixelRatioF();
+    if (event->type() == QEvent::MouseButtonRelease
+        && (watched == m_cover || watched == m_coverFlip)
+        && m_hasMovie && !m_current.coverBackPath.isEmpty()) {
+        m_showingBack = !m_showingBack;
+        applyCover_();
+        return true;
+    }
+    return QWidget::eventFilter(watched, event);
+}
 
-    // Cover.
+void MovieDetailWidget::applyCover_()
+{
+    const Movie& m = m_current;
+    const qreal dpr = devicePixelRatioF();
+    const bool hasBack = !m.coverBackPath.isEmpty();
+    if (!hasBack) m_showingBack = false;
+
+    const QString path = m_showingBack ? m.coverBackPath : m.coverFrontPath;
+    // A distinct cache variant per side, so the two never collide on one path
+    // and CoverCache::bump() still invalidates both.
+    const QString variant = m_showingBack ? QStringLiteral("detailback")
+                                          : QStringLiteral("detail");
+
     QPixmap cover;
-    if (!m.coverFrontPath.isEmpty()) {
-        const QString key = CoverCache::key(m.coverFrontPath, QStringLiteral("detail"));
+    if (!path.isEmpty()) {
+        const QString key = CoverCache::key(path, variant);
         if (!QPixmapCache::find(key, &cover)) {
-            QPixmap raw(m.coverFrontPath);
+            // The one place that still decodes synchronously: a single image
+            // per selection, unlike the delegates' many-per-frame paint paths.
+            QPixmap raw(path);
             if (!raw.isNull()) {
                 cover = raw.scaled(QSize(150, 225) * dpr, Qt::KeepAspectRatio,
                                    Qt::SmoothTransformation);
@@ -509,6 +636,24 @@ void MovieDetailWidget::populateHeader_(const Movie& m)
         cover = CoverArt::placeholder(m.title, m.productionYear, m.format,
                                       QSize(150, 225), true, dpr);
     m_cover->setPixmap(cover);
+
+    m_coverFlip->setVisible(hasBack);
+    m_cover->setCursor(hasBack ? Qt::PointingHandCursor : Qt::ArrowCursor);
+    if (hasBack) {
+        m_coverFlip->setText(m_showingBack ? tr("Show front") : tr("Show back"));
+        m_coverFlip->setStyleSheet(
+            QStringLiteral("color:%1;").arg(Theme::current().accent.name()));
+    }
+}
+
+void MovieDetailWidget::populateHeader_(const Movie& m)
+{
+    const Palette& pal = Theme::current();
+    const qreal dpr = devicePixelRatioF();
+
+    // Cover — always opens on the front when the selection changes.
+    m_showingBack = false;
+    applyCover_();
 
     // Title / original.
     m_title->setText(m.title);
@@ -561,22 +706,41 @@ void MovieDetailWidget::populateHeader_(const Movie& m)
         m_chips->layout()->addWidget(chip(g));
     m_chips->setVisible(!m.genres.isEmpty());
 
-    // Rating.
-    const bool hasRating = m.review.film > 0;
-    m_ratingRow->setVisible(hasRating);
-    if (hasRating) {
+    // Rating — four axes, each shown only when actually rated.
+    const bool hasFilm = m.review.film > 0;
+    m_filmRatingBlock->setVisible(hasFilm);
+    if (hasFilm) {
         m_stars->setValue(qRound(m.review.film / 2.0));
         m_ratingCap->setText(tr("My rating · %1/10").arg(m.review.film).toUpper());
         m_ratingCap->setStyleSheet(QStringLiteral("color:%1;").arg(pal.text3.name()));
     }
 
+    const auto setAxis = [&pal](QLabel* cap, StarBar* bar, const QString& caption,
+                                int value) {
+        const bool has = value > 0;
+        cap->setVisible(has);
+        bar->setVisible(has);
+        if (!has) return;
+        bar->setValue(qRound(value / 2.0));
+        cap->setText(QStringLiteral("%1 · %2/10").arg(caption).arg(value).toUpper());
+        cap->setStyleSheet(QStringLiteral("color:%1;").arg(pal.text3.name()));
+    };
+    setAxis(m_capVideo,  m_starsVideo,  tr("Video"),  m.review.video);
+    setAxis(m_capAudio,  m_starsAudio,  tr("Audio"),  m.review.audio);
+    setAxis(m_capExtras, m_starsExtras, tr("Extras"), m.review.extras);
+
+    const bool hasSubRatings =
+        m.review.video > 0 || m.review.audio > 0 || m.review.extras > 0;
+    m_subRatings->setVisible(hasSubRatings);
+    m_ratingRow->setVisible(hasFilm || hasSubRatings);
+
     // TMDb button.
     m_tmdbBtn->setText(m.tmdbId > 0 ? tr("Re-match on TMDb…") : tr("Find on TMDb…"));
 
-    // Loan banner.
+    // Loan banner + action.
+    m_loanButton->setText(m.loan.loaned ? tr("Take back") : tr("Lend out…"));
+    m_loanBanner->setVisible(m.loan.loaned);
     if (m.loan.loaned) {
-        m_loanBanner->parentWidget()->setVisible(true);
-        m_loanBanner->setVisible(true);
         const QColor accent = Theme::loanAccent();
         m_loanBanner->setStyleSheet(QStringLiteral(
             "QFrame{background:rgba(%1,%2,%3,0.14);border:1px solid rgba(%1,%2,%3,0.4);"
@@ -590,8 +754,6 @@ void MovieDetailWidget::populateHeader_(const Movie& m)
         m_loanText->setText(text);
         m_loanText->setStyleSheet(QStringLiteral("color:%1;font-weight:500;")
             .arg(Theme::isDark() ? QStringLiteral("#e9a94e") : QStringLiteral("#c47b1e")));
-    } else {
-        m_loanBanner->parentWidget()->setVisible(false);
     }
 }
 
@@ -754,20 +916,71 @@ void MovieDetailWidget::populateNotes_(const Movie& m)
 
     clearLayout(m_notesGrid);
     int idx = 0;
-    const auto addFact = [&](const QString& label, const QString& value) {
+    const auto addField = [&](const QString& label, const QString& value, bool rich) {
         if (value.isEmpty()) return;
-        m_notesGrid->addWidget(makeField(label, value), idx / 2, idx % 2);
+        m_notesGrid->addWidget(makeField(label, value, rich), idx / 2, idx % 2);
         ++idx;
+    };
+    const auto addFact = [&](const QString& label, const QString& value) {
+        addField(label, value, false);
+    };
+    const auto addRichFact = [&](const QString& label, const QString& html) {
+        addField(label, html, true);
     };
     QStringList purchase;
     if (m.purchase.date.isValid())
         purchase << m.purchase.date.toString(QStringLiteral("dd MMM yyyy"));
-    if (!m.purchase.price.formattedValue.isEmpty())
-        purchase << m.purchase.price.formattedValue;
+    const QString paid = displayAmount(m.purchase.price);
+    if (!paid.isEmpty())
+        purchase << paid;
     if (!m.purchase.place.isEmpty())
         purchase << m.purchase.place;
     addFact(tr("Purchase"), purchase.join(QStringLiteral(" · ")));
+    addFact(tr("SRP"), displayAmount(m.srp));
     addFact(tr("Tags"), m.tags.join(QStringLiteral(", ")));
+
+    // DP4 bookkeeping. All imported, none of it reachable before.
+    if (m.collectionNumber > 0)
+        addFact(tr("Collection no."), QString::number(m.collectionNumber));
+    if (m.countAs != 1)
+        addFact(tr("Counts as"), QString::number(m.countAs));
+    if (isWishlistMembership(m.membership) && m.wishPriority > 0)
+        addFact(tr("Wish priority"), QString::number(m.wishPriority));
+    if (!m.myLinks.isEmpty())
+        addRichFact(tr("My links"), toDisplayHtml(m.myLinks));
+
+    // User-defined DP4 fields. Arbitrary names, so they get their own section
+    // rather than being mixed into the fixed facts above.
+    clearLayout(m_customLayout);
+    for (const auto& field : m.customFields) {
+        if (field.name.isEmpty() && field.value.isEmpty()) continue;
+        m_customLayout->addWidget(makeField(field.name, field.value));
+    }
+    m_customSection->setVisible(!m.customFields.isEmpty());
+
+    // Loan history. Imported DP4 events and locally created ones share the
+    // same list, so sort by timestamp instead of trusting the stored order.
+    clearLayout(m_historyLayout);
+    QList<Event> history = m.events;
+    std::sort(history.begin(), history.end(), [](const Event& a, const Event& b) {
+        return a.timestamp > b.timestamp;   // newest first
+    });
+    for (const Event& e : history) {
+        QStringList parts;
+        if (e.timestamp.isValid())
+            parts << e.timestamp.toString(QStringLiteral("dd MMM yyyy"));
+        if (!e.type.isEmpty())
+            parts << eventTypeLabel(e.type);
+        const QString name =
+            QStringLiteral("%1 %2").arg(e.userFirstName, e.userLastName).trimmed();
+        if (!name.isEmpty()) parts << name;
+        if (!e.note.isEmpty()) parts << e.note;
+        if (parts.isEmpty()) continue;
+        // One label per event rather than a field grid: the history can be
+        // long, and every extra styled widget costs on each selection change.
+        m_historyLayout->addWidget(valueLabel(parts.join(QStringLiteral("  ·  "))));
+    }
+    m_historySection->setVisible(m_historyLayout->count() > 0);
 }
 
 } // namespace xyz

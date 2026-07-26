@@ -20,4 +20,18 @@ struct MonetaryAmount {
     QString formattedValue;
 };
 
+// Single display rule for both the detail pane and the edit dialog.
+//
+// `formattedValue` is the *source's* own formatting and is preferred when
+// present. It goes stale as soon as the user edits the value or the currency,
+// so every editor must clear it on write — we never synthesise one ourselves,
+// because we cannot know the locale conventions the source used.
+inline QString displayAmount(const MonetaryAmount& amount)
+{
+    if (!amount.formattedValue.isEmpty()) return amount.formattedValue;
+    if (amount.value.isEmpty())           return {};
+    if (amount.denominationType.isEmpty()) return amount.value;
+    return amount.value + QChar(u' ') + amount.denominationType;
+}
+
 } // namespace xyz

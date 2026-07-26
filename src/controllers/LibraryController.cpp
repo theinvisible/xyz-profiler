@@ -2,6 +2,7 @@
 
 #include "db/Database.h"
 #include "db/Migrations.h"
+#include "domain/LoanOps.h"
 #include "db/MovieRepository.h"
 #include "importers/dvdprofiler/DvdProfilerXmlImporter.h"
 #include "models/MovieListModel.h"
@@ -109,6 +110,16 @@ bool LibraryController::libraryOpen() const
 int LibraryController::movieCount() const
 {
     return m_listModel ? m_listModel->rowCount() : 0;
+}
+
+int LibraryController::wishlistCount() const
+{
+    if (!m_listModel) return 0;
+    int n = 0;
+    for (const Movie& m : m_listModel->movies()) {
+        if (isWishlistMembership(m.membership)) ++n;
+    }
+    return n;
 }
 
 void LibraryController::setStatus_(const QString& message)
@@ -582,6 +593,35 @@ void LibraryController::updateMovie(const Movie& edited)
         refresh();
     }
     setStatus_(tr("Updated \"%1\"").arg(edited.title));
+}
+
+void LibraryController::lendMovie(const QString& id, const QString& firstName,
+                                  const QString& lastName, const QDate& due)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    const Movie* current = m_listModel ? m_listModel->find(id) : nullptr;
+    if (!current) return;
+
+    Movie edited = *current;
+    lendItem(edited, firstName.trimmed(), lastName.trimmed(), due,
+             QDateTime::currentDateTime());
+    updateMovie(edited);
+
+    const QString name = QStringLiteral("%1 %2").arg(firstName, lastName).trimmed();
+    setStatus_(name.isEmpty() ? tr("Lent out \"%1\"").arg(edited.title)
+                              : tr("Lent \"%1\" to %2").arg(edited.title, name));
+}
+
+void LibraryController::returnMovie(const QString& id)
+{
+    if (!m_repo) { setStatus_(tr("No library open")); return; }
+    const Movie* current = m_listModel ? m_listModel->find(id) : nullptr;
+    if (!current || !current->loan.loaned) return;
+
+    Movie edited = *current;
+    returnItem(edited, QDateTime::currentDateTime());
+    updateMovie(edited);
+    setStatus_(tr("\"%1\" is back in the collection").arg(edited.title));
 }
 
 void LibraryController::deleteMovie(const QString& id)

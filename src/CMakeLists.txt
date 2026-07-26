@@ -13,6 +13,7 @@ target_sources(xyz_domain INTERFACE
         domain/Event.h
         domain/IdMetadata.h
         domain/LoanInfo.h
+        domain/LoanOps.h
         domain/MediaFormat.h
         domain/MediaItem.h
         domain/MonetaryAmount.h
@@ -77,6 +78,8 @@ target_include_directories(xyz_db
 # --- Application (Qt Widgets) ---------------------------------------------
 qt_add_executable(xyz-profiler
     main.cpp
+    models/CollectionFilterProxyModel.h
+    models/CollectionFilterProxyModel.cpp
     models/MovieListModel.h
     models/MovieListModel.cpp
     models/MovieSortProxyModel.h
@@ -136,6 +139,8 @@ qt_add_executable(xyz-profiler
     ui/EditMovieDialog.cpp
     ui/ImportPreviewDialog.h
     ui/ImportPreviewDialog.cpp
+    ui/LendDialog.h
+    ui/LendDialog.cpp
     ui/SettingsDialog.h
     ui/SettingsDialog.cpp
     ${CMAKE_SOURCE_DIR}/resources/app.qrc

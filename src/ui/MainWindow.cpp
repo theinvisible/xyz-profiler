@@ -2,6 +2,7 @@
 
 #include "controllers/LibraryController.h"
 #include "controllers/SettingsController.h"
+#include "models/CollectionFilterProxyModel.h"
 #include "models/MovieListModel.h"
 #include "models/MovieTreeModel.h"
 #include "tmdb/TmdbClient.h"
@@ -13,6 +14,7 @@
 #include "ui/EditMovieDialog.h"
 #include "ui/IconFactory.h"
 #include "ui/ImportPreviewDialog.h"
+#include "ui/LendDialog.h"
 #include "ui/MovieDetailWidget.h"
 #include "ui/MovieRowDelegate.h"
 #include "ui/SettingsDialog.h"
@@ -38,7 +40,6 @@
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QSet>
-#include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QStatusBar>
@@ -77,6 +78,9 @@ QString gridRoleForColumn(int column)
     case MovieTreeModel::PurchaseDate:  return QStringLiteral("purchaseDate");
     case MovieTreeModel::Loaned:        return QStringLiteral("isLoaned");
     case MovieTreeModel::BoxSetParent:  return QStringLiteral("isBoxSetParent");
+    case MovieTreeModel::RatingVideo:   return QStringLiteral("reviewVideo");
+    case MovieTreeModel::RatingAudio:   return QStringLiteral("reviewAudio");
+    case MovieTreeModel::RatingExtras:  return QStringLiteral("reviewExtras");
     default:                            return QStringLiteral("sortTitle");
     }
 }
@@ -122,6 +126,7 @@ MainWindow::MainWindow(LibraryController* controller,
     refreshIcons_();
     switchView_(m_settings->viewMode());
     applySavedSort_();
+    applyStatusFilter_();
     onMoviesChanged_();
     onSelectionChanged_();
 }
@@ -223,6 +228,20 @@ void MainWindow::buildToolBar_()
 
     tb->addWidget(spacer());
 
+    // Collection status. DP4 keeps wishlist entries in the same collection, so
+    // without this they would sit among the owned discs and inflate the count.
+    m_statusFilter = new QComboBox;
+    m_statusFilter->setObjectName(QStringLiteral("statusFilter"));
+    m_statusFilter->setToolTip(tr("Show owned titles, the wishlist, or both"));
+    m_statusFilter->addItem(tr("Owned"),    QStringLiteral("owned"));
+    m_statusFilter->addItem(tr("Wishlist"), QStringLiteral("wishlist"));
+    m_statusFilter->addItem(tr("All"),      QStringLiteral("all"));
+    connect(m_statusFilter, &QComboBox::activated, this, [this](int index) {
+        m_settings->setCollectionStatusFilter(
+            m_statusFilter->itemData(index).toString());
+    });
+    tb->addWidget(m_statusFilter);
+
     // Search.
     m_searchField = new QLineEdit;
     m_searchField->setObjectName(QStringLiteral("searchField"));
@@ -291,22 +310,27 @@ void MainWindow::buildCentralWidget_()
     m_viewStack = new QStackedWidget;
 
     // ---- Cover grid (index 0) — hide box-set parent titles -----------------
-    m_gridFilterProxy = new QSortFilterProxyModel(this);
+    m_gridFilterProxy = new CollectionFilterProxyModel(this);
     m_gridFilterProxy->setSourceModel(m_controller->sortProxy());
-    m_gridFilterProxy->setFilterRole(MovieListModel::IsBoxSetParentRole);
-    m_gridFilterProxy->setFilterRegularExpression(
-        QRegularExpression(QStringLiteral("^false$")));
+    m_gridFilterProxy->setRoles(MovieListModel::MembershipTypeRole,
+                                MovieListModel::MembershipIsOwnedRole,
+                                MovieListModel::IsBoxSetParentRole);
+    m_gridFilterProxy->setHideBoxSetParents(true);
 
     m_coverGrid = new CoverGridWidget;
     m_coverGrid->setModel(m_gridFilterProxy);
     m_viewStack->addWidget(m_coverGrid);
 
     // ---- Tree view (index 1) — box-set parents expandable ------------------
-    m_treeSortProxy = new QSortFilterProxyModel(this);
+    m_treeSortProxy = new CollectionFilterProxyModel(this);
     m_treeSortProxy->setSourceModel(m_controller->treeModel());
     m_treeSortProxy->setSortRole(Qt::UserRole);
     m_treeSortProxy->setSortLocaleAware(true);
+    // Parents stay visible while any of their children matches the filter.
     m_treeSortProxy->setRecursiveFilteringEnabled(true);
+    m_treeSortProxy->setRoles(MovieTreeModel::MembershipTypeRole,
+                              MovieTreeModel::MembershipIsOwnedRole,
+                              MovieTreeModel::IsBoxSetParentRole);
 
     m_treeView = new QTreeView;
     m_treeView->setModel(m_treeSortProxy);
@@ -445,6 +469,19 @@ void MainWindow::buildCentralWidget_()
 
     connect(m_detailPane, &MovieDetailWidget::tmdbSearchRequested,
             m_controller, &LibraryController::searchSelectedOnTmdb);
+
+    connect(m_detailPane, &MovieDetailWidget::lendRequested, this, [this] {
+        if (!m_controller->hasSelection()) return;
+        const Movie& movie = m_controller->selectedMovie();
+        LendDialog dlg(movie.title, this);
+        if (dlg.exec() != QDialog::Accepted) return;
+        m_controller->lendMovie(movie.id, dlg.firstName(), dlg.lastName(),
+                                dlg.due());
+    });
+    connect(m_detailPane, &MovieDetailWidget::returnRequested, this, [this] {
+        if (m_controller->hasSelection())
+            m_controller->returnMovie(m_controller->selectedId());
+    });
 
     // Right-click context menu (Edit / Delete) on both views.
     m_treeView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -593,6 +630,8 @@ void MainWindow::connectSettings_()
 {
     connect(m_settings, &SettingsController::viewModeChanged, this,
             [this] { switchView_(m_settings->viewMode()); });
+    connect(m_settings, &SettingsController::collectionStatusFilterChanged, this,
+            [this] { applyStatusFilter_(); });
     connect(m_settings, &SettingsController::themeNameChanged, this, [this] {
         refreshIcons_();
         if (m_treeView)  m_treeView->viewport()->update();
@@ -640,8 +679,16 @@ void MainWindow::refreshIcons_()
 // ---------------------------------------------------------------------------
 void MainWindow::onMoviesChanged_()
 {
-    m_countLabel->setText(tr("%1 movies").arg(m_controller->movieCount()));
-    m_searchField->setEnabled(m_controller->movieCount() > 0);
+    const int total    = m_controller->movieCount();
+    const int wishlist = m_controller->wishlistCount();
+    QString text = tr("%1 movies").arg(total);
+    if (wishlist > 0) {
+        // Split the headline count so "312 movies" never silently includes
+        // discs the user does not actually own.
+        text = tr("%1 owned · %2 on the wishlist").arg(total - wishlist).arg(wishlist);
+    }
+    m_countLabel->setText(text);
+    m_searchField->setEnabled(total > 0);
 }
 
 void MainWindow::onSelectionChanged_()
@@ -752,6 +799,24 @@ void MainWindow::switchView_(const QString& mode)
                                          isList ? p.accentFg : p.text2, 16));
     m_gridBtn->setIcon(IconFactory::icon(QStringLiteral("grid"),
                                          !isList ? p.accentFg : p.text2, 16));
+}
+
+void MainWindow::applyStatusFilter_()
+{
+    const CollectionStatus status =
+        collectionStatusFromKey(m_settings->collectionStatusFilter());
+
+    if (m_gridFilterProxy) m_gridFilterProxy->setStatus(status);
+    if (m_treeSortProxy)   m_treeSortProxy->setStatus(status);
+
+    // Reflect the persisted value back into the combo without re-emitting —
+    // the connection uses QComboBox::activated (user interaction only), so a
+    // programmatic setCurrentIndex here cannot loop back into the setting.
+    if (m_statusFilter) {
+        const int index =
+            m_statusFilter->findData(collectionStatusKey(status));
+        if (index >= 0) m_statusFilter->setCurrentIndex(index);
+    }
 }
 
 void MainWindow::applySavedSort_()

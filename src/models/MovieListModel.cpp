@@ -49,6 +49,9 @@ QVariant MovieListModel::data(const QModelIndex& index, int role) const
     case RatingValueRole:      return m.rating.value;
     case RatingAgeRole:        return m.rating.age;
     case ReviewFilmRole:       return m.review.film;
+    case ReviewVideoRole:      return m.review.video;
+    case ReviewAudioRole:      return m.review.audio;
+    case ReviewExtrasRole:     return m.review.extras;
     case GenresJoinedRole:     return m.genres.join(QStringLiteral(", "));
     case StudiosJoinedRole:    return m.studios.join(QStringLiteral(", "));
     case CaseTypeRole:         return m.caseType;
@@ -58,6 +61,8 @@ QVariant MovieListModel::data(const QModelIndex& index, int role) const
     case BoxSetParentIdRole:   return m.boxSet.parentId;
     case IsLoanedRole:         return m.loan.loaned;
     case IsBoxSetParentRole:   return m.boxSet.isParent;
+    case MembershipTypeRole:   return m.membership.type;
+    case MembershipIsOwnedRole: return m.membership.isPartOfOwnedCollection;
     default:                   return {};
     }
 }
@@ -78,6 +83,9 @@ QHash<int, QByteArray> MovieListModel::roleNames() const
         {RatingValueRole,    "ratingValue"},
         {RatingAgeRole,      "ratingAge"},
         {ReviewFilmRole,     "reviewFilm"},
+        {ReviewVideoRole,    "reviewVideo"},
+        {ReviewAudioRole,    "reviewAudio"},
+        {ReviewExtrasRole,   "reviewExtras"},
         {GenresJoinedRole,   "genresJoined"},
         {StudiosJoinedRole,  "studiosJoined"},
         {CaseTypeRole,       "caseType"},
@@ -87,6 +95,8 @@ QHash<int, QByteArray> MovieListModel::roleNames() const
         {BoxSetParentIdRole, "boxSetParentId"},
         {IsLoanedRole,       "isLoaned"},
         {IsBoxSetParentRole, "isBoxSetParent"},
+        {MembershipTypeRole, "membershipType"},
+        {MembershipIsOwnedRole, "membershipIsOwned"},
     };
 }
 

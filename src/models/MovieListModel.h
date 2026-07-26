@@ -29,6 +29,9 @@ public:
         RatingValueRole,
         RatingAgeRole,
         ReviewFilmRole,          // user's own film rating (0-10); matches tree Rating sort
+        ReviewVideoRole,
+        ReviewAudioRole,
+        ReviewExtrasRole,
         GenresJoinedRole,        // ", "-joined for label rendering
         StudiosJoinedRole,
         CaseTypeRole,
@@ -37,7 +40,9 @@ public:
         PurchaseDateRole,        // QDate; matches tree PurchaseDate column sort
         BoxSetParentIdRole,
         IsLoanedRole,
-        IsBoxSetParentRole
+        IsBoxSetParentRole,
+        MembershipTypeRole,      // DP4 <CollectionType> body: "Owned", "Wishlist", …
+        MembershipIsOwnedRole    // its IsPartOfOwnedCollection attribute
     };
     Q_ENUM(Roles)
 

@@ -8,7 +8,6 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QProgressDialog;
-class QSortFilterProxyModel;
 class QSplitter;
 class QStackedWidget;
 class QTimer;
@@ -18,6 +17,7 @@ class QTreeView;
 namespace xyz {
 
 class CalendarWindow;
+class CollectionFilterProxyModel;
 class CoverGridWidget;
 class LibraryController;
 class MovieDetailWidget;
@@ -48,6 +48,7 @@ private:
     void onTmdbStateChanged_();
     void switchView_(const QString& mode);
     void applySavedSort_();
+    void applyStatusFilter_();   // push the saved owned/wishlist/all onto both proxies
     void toggleTheme_();
     void showImportDialog_();
     void showAddTitleDialog_();
@@ -83,6 +84,7 @@ private:
     QToolButton* m_editBtn     = nullptr;
     QToolButton* m_deleteBtn   = nullptr;
     QToolButton* m_matchBtn    = nullptr;
+    QComboBox*   m_statusFilter = nullptr;
     QLineEdit*   m_searchField = nullptr;
     QAction*     m_searchIcon  = nullptr;
     QToolButton* m_listBtn     = nullptr;
@@ -101,9 +103,11 @@ private:
     QSplitter*             m_splitter        = nullptr;
     QStackedWidget*        m_viewStack       = nullptr;
     CoverGridWidget*       m_coverGrid       = nullptr;
-    QSortFilterProxyModel* m_gridFilterProxy = nullptr;
+    // Both views filter by collection status; the grid additionally hides
+    // box-set parents (they are represented there by their child titles).
+    CollectionFilterProxyModel* m_gridFilterProxy = nullptr;
     QTreeView*             m_treeView        = nullptr;
-    QSortFilterProxyModel* m_treeSortProxy   = nullptr;
+    CollectionFilterProxyModel* m_treeSortProxy = nullptr;
     MovieDetailWidget*     m_detailPane      = nullptr;
     bool                   m_restoringSort   = false;
 
