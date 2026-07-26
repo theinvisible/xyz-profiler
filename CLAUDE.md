@@ -71,6 +71,7 @@ xyz-profiler/
 │       ├── IconFactory.h/.cpp          SVG → tinted QPixmap/QIcon (QPixmapCache'd)
 │       ├── CoverArt.h/.cpp             Generated gradient placeholder posters
 │       ├── CoverCache.h                Generation-keyed cover QPixmapCache coherency
+│       ├── CoverLoader.h/.cpp          Async cover decode pool (grid + list rows)
 │       ├── FlowLayout.h/.cpp           Wrapping layout (genre chips)
 │       ├── MainWindow.h/.cpp           QMainWindow: toolbar, splitter, QStackedWidget
 │       ├── CoverGridWidget.h/.cpp      QListView IconMode + CoverDelegate (cover tiles)
@@ -286,7 +287,15 @@ Things that cost time to rediscover. When you touch one of these, start here.
   from the source file) and recorded in `coverFrontPath` / `coverBackPath`.
 - Three places paint covers and cache the scaled pixmap: `CoverDelegate::paint`
   (`CoverGridWidget`), `MovieRowDelegate::rowCover`, and
-  `MovieDetailWidget::populateHeader_`.
+  `MovieDetailWidget::populateHeader_`. The two *delegates* never decode in
+  `paint()`: they call `CoverLoader::pixmap()`, which returns only what is
+  already in `QPixmapCache` and decodes misses asynchronously on a small
+  worker pool (`ui/CoverLoader.h/.cpp` — `QImageReader::setScaledSize` for
+  near-target JPEG decode, center-crop, corner radius baked in so no clip
+  path per tile, LIFO queue, failed paths remembered per generation). Views
+  repaint on `coverReady`. A synchronous decode in a delegate paint path is
+  a regression — that was the scroll stutter with hundreds of movies. Only
+  the detail pane (one image per selection) still loads synchronously.
 - **Gotcha:** re-matching on TMDb overwrites `covers/<id>f.jpg` *in place*, so
   the path never changes. A cache keyed on the path alone keeps serving the old
   artwork (this is why a re-match left the previous, English cover on screen).
@@ -301,6 +310,18 @@ Things that cost time to rediscover. When you touch one of these, start here.
   cover dir may sit on a network drive, and a filesystem hit per tile per repaint
   would stutter the perf-tuned grid scrolling. The generation map is an in-memory
   hash probe, GUI-thread only (no locking).
+
+### Settings writes are synchronous disk I/O
+
+- Every `SettingsController` setter goes through `write_()`, which calls
+  `QSettings::sync()` — a synchronous INI rewrite (temp file + flush +
+  rename) on the GUI thread. That's fine for one-shot actions (theme toggle,
+  sort change) but must never sit on a per-mouse-event path: the splitter
+  state used to be saved on every `splitterMoved` pixel, which made dragging
+  the handle visibly sluggish. `MainWindow::buildCentralWidget_` now debounces
+  it (300 ms single-shot QTimer, flushed on `aboutToQuit`). Apply the same
+  debounce to any future high-frequency persistence (window geometry, column
+  widths, …).
 
 ### Disc-format vocabulary
 
