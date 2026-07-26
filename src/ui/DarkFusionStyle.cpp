@@ -42,8 +42,13 @@ QPalette paletteFor(const Palette& p)
 }
 
 // The QSS template uses @token@ placeholders resolved from the Palette.
+// Keep this scoped to real chrome. A catch-all `QWidget { … }` rule would
+// match every widget in the application, which puts all of them on
+// QStyleSheetStyle's rule-resolution path and makes each theme switch
+// re-polish the entire tree against a matching rule. The text colour it used
+// to set is already covered by QPalette::WindowText / Text / ButtonText in
+// paletteFor(), so the rule bought nothing.
 const char* kTemplate = R"QSS(
-QWidget { color: @text@; }
 QMainWindow { background: @win@; }
 QDialog { background: @panel@; }
 QToolTip { background: @panel2@; color: @text@; border: 1px solid @border@; padding: 4px 6px; }
