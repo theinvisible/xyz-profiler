@@ -25,7 +25,8 @@ if(NOT Qt6_FOUND)
     set(_qt_found_dir "")
     foreach(_qt_root IN LISTS _qt_search_roots)
         file(GLOB _qt_versions LIST_DIRECTORIES true "${_qt_root}/6.*")
-        list(SORT _qt_versions ORDER DESCENDING)
+        # NATURAL, or "6.9.x" would sort above "6.12.x".
+        list(SORT _qt_versions COMPARE NATURAL ORDER DESCENDING)
         foreach(_qt_ver IN LISTS _qt_versions)
             file(GLOB _qt_kits LIST_DIRECTORIES true
                  "${_qt_ver}/msvc*_64" "${_qt_ver}/mingw*_64")
@@ -45,7 +46,17 @@ if(NOT Qt6_FOUND)
     endforeach()
     if(_qt_found_dir)
         set(Qt6_DIR "${_qt_found_dir}/lib/cmake/Qt6" CACHE PATH "Qt6 config dir" FORCE)
+        # Drop prefixes whose Qt install has since been removed (e.g. the
+        # previous version after an upgrade) so they don't pile up in the cache.
+        set(_qt_prefixes "")
+        foreach(_p IN LISTS CMAKE_PREFIX_PATH)
+            if(EXISTS "${_p}")
+                list(APPEND _qt_prefixes "${_p}")
+            endif()
+        endforeach()
+        set(CMAKE_PREFIX_PATH ${_qt_prefixes})
         list(PREPEND CMAKE_PREFIX_PATH "${_qt_found_dir}")
+        list(REMOVE_DUPLICATES CMAKE_PREFIX_PATH)
         set(CMAKE_PREFIX_PATH "${CMAKE_PREFIX_PATH}" CACHE STRING "" FORCE)
         message(STATUS "Auto-detected Qt6 at ${_qt_found_dir}")
         find_package(Qt6 6.5 REQUIRED COMPONENTS

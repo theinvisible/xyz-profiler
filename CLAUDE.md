@@ -128,7 +128,8 @@ ctest --test-dir build --output-on-failure
 ```
 
 The top-level `CMakeLists.txt` auto-detects common Qt install locations
-(currently `H:/Qt/6.11.1/msvc2022_64`, plus `C:/Qt/...` fallbacks). Override
+(currently `H:/Qt/6.12.0/msvc2022_64`, plus `C:/Qt/...` fallbacks) and picks
+the highest installed 6.x version (natural sort). Override
 with `-DCMAKE_PREFIX_PATH=...` or the matching environment variable for a
 different Qt install. Required modules: Core / Concurrent / Gui / Network /
 Widgets / Sql / Svg / Test / LinguistTools.

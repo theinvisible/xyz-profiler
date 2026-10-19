@@ -181,10 +181,19 @@ target_include_directories(xyz-profiler
 )
 
 if(WIN32)
-    find_program(WINDEPLOYQT_EXE windeployqt HINTS "${CMAKE_PREFIX_PATH}/bin")
-    if(WINDEPLOYQT_EXE)
+    # Prefer Qt's imported target: it always belongs to the Qt that
+    # find_package() resolved. A cached find_program() result goes stale
+    # after a Qt upgrade and keeps pointing at the removed install.
+    if(TARGET Qt6::windeployqt)
+        set(_windeployqt "$<TARGET_FILE:Qt6::windeployqt>")
+    else()
+        find_program(WINDEPLOYQT_EXE windeployqt
+            HINTS "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_BINS}")
+        set(_windeployqt "${WINDEPLOYQT_EXE}")
+    endif()
+    if(_windeployqt)
         add_custom_command(TARGET xyz-profiler POST_BUILD
-            COMMAND "${WINDEPLOYQT_EXE}"
+            COMMAND "${_windeployqt}"
                     --translations de,en
                     --no-system-d3d-compiler
                     --no-opengl-sw

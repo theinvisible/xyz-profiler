@@ -89,7 +89,7 @@ honours the `<?xml encoding="windows-1252"?>` declaration — opening with
 
 - Visual Studio 2022 (MSVC v143) on Windows, or a recent g++/clang on Linux
 - CMake ≥ 3.21
-- Qt 6.5+ (tested with 6.10.2 and 6.11.1) — MSVC 64-bit kit on Windows.
+- Qt 6.5+ (tested with 6.10.2, 6.11.1 and 6.12.0) — MSVC 64-bit kit on Windows.
   Required Qt modules: `Core`, `Concurrent`, `Gui`, `Network`, `Widgets`,
   `Sql`, `Svg`, `Test`, `LinguistTools`.
 
